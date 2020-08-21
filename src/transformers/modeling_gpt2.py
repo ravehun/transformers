@@ -143,29 +143,64 @@ class Attention(nn.Module):
         self.n_head = self.n_head - len(heads)
         self.pruned_heads = self.pruned_heads.union(heads)
 
-    def _attn(self, q, k, v, attention_mask=None, head_mask=None, output_attentions=False):
-        w = torch.matmul(q, k)
-        if self.scale:
-            w = w / (float(v.size(-1)) ** 0.5)
-        nd, ns = w.size(-2), w.size(-1)
-        mask = self.bias[:, :, ns - nd : ns, :ns]
-        w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
+    def _attn(self, queries, keys, values,
+              key_lengths=None, head_mask=None, output_attentions=False,
 
-        if attention_mask is not None:
-            # Apply the attention mask
-            w = w + attention_mask
-
-        w = nn.Softmax(dim=-1)(w)
-        w = self.attn_dropout(w)
-
-        # Mask heads if we want to
+              ):
+        # print(f"queries, keys, values {queries.shape}, {keys.shape}, {values.shape}")
         if head_mask is not None:
-            w = w * head_mask
-
-        outputs = [torch.matmul(w, v)]
+            raise NotImplementedError("head_mask not implement")
         if output_attentions:
-            outputs.append(w)
-        return outputs
+            raise NotImplementedError("output_attentions not implement")
+
+        def elu_feature_map(x):
+            return torch.nn.functional.elu(x) + 1
+
+        self.feature_map = elu_feature_map
+
+        from fast_transformers.causal_product import causal_dot_product
+        def causal_linear(Q, K, V):
+            # input nhli
+            # needs nhli
+            # Q = Q.permute(0, 1, 3, 2).contiguous()
+            # input nhil
+            # needs nhli
+            K = K.permute(0, 1, 3, 2).contiguous()
+            # input nhli
+            # needs nhli
+            # V = V.permute(0, 1, 3, 2).contiguous()
+            V_new = causal_dot_product(Q, K, V)
+            return V_new
+
+        # Apply the feature map to the queries and keys
+        Q = self.feature_map(queries)
+        K = self.feature_map(keys)
+
+        # Apply the key padding mask and make sure the attn_mask is a
+        # lower triangular causal mask
+        # if not attn_mask.lower_triangular:
+        #     raise RuntimeError(("CausalLinearAttention only supports full "
+        #                         "lower triangular masks"))
+        K = K * key_lengths.exp()
+
+        # TODO: Shall we divide the Q and K with a relatively large number to
+        #       avoid numerical instabilities in computing the denominator?
+        #       We used to divide each with the max norm of all q and k but
+        #       that seems relatively costly for a simple normalization.
+
+        # Compute the normalizers
+        # print(f"Q {Q.shape}, K.cumsum(1) {K.cumsum(1).shape}")
+        Z = 1 / (torch.einsum("nhli,nhil->nhl", Q, K.cumsum(1)) + 1e-6)
+        # Z = 1/(torch.einsum("nlhi,nlhi->nlh", Q, K.cumsum(1)) + self.eps)
+
+        # Compute the unnormalized result nhli
+        V = causal_linear(
+            Q,
+            K,
+            values
+        )
+
+        return [V * Z[:, :, :, None]]
 
     def merge_heads(self, x):
         x = x.permute(0, 2, 1, 3).contiguous()

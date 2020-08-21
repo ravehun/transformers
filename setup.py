@@ -131,6 +131,7 @@ setup(
         "sentencepiece != 0.1.92",
         # for XLM
         "sacremoses",
+        "pytorch-fast-transformers",
     ],
     extras_require=extras,
     entry_points={
