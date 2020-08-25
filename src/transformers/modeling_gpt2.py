@@ -119,6 +119,7 @@ class Attention(nn.Module):
         self.n_head = config.n_head
         self.split_size = n_state
         self.scale = scale
+        self.attention_type = config.attention_type
 
         self.c_attn = Conv1D(n_state * 3, nx)
         self.c_proj = Conv1D(n_state, nx)
@@ -148,8 +149,9 @@ class Attention(nn.Module):
         if self.scale:
             w = w / (float(v.size(-1)) ** 0.5)
         nd, ns = w.size(-2), w.size(-1)
-        mask = self.bias[:, :, ns - nd : ns, :ns]
-        w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
+        if self.attention_type == "causal":
+            mask = self.bias[:, :, ns - nd : ns, :ns]
+            w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
 
         if attention_mask is not None:
             # Apply the attention mask

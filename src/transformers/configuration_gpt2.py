@@ -135,6 +135,7 @@ class GPT2Config(PretrainedConfig):
         summary_first_dropout=0.1,
         bos_token_id=50256,
         eos_token_id=50256,
+        attention_type='casual',
         **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
@@ -159,6 +160,7 @@ class GPT2Config(PretrainedConfig):
 
         self.bos_token_id = bos_token_id
         self.eos_token_id = eos_token_id
+        self.attention_type = attention_type
 
     @property
     def max_position_embeddings(self):
