@@ -152,6 +152,10 @@ class Attention(nn.Module):
         if self.attention_type == "causal":
             mask = self.bias[:, :, ns - nd : ns, :ns]
             w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
+        elif self.attention_type == "full":
+            pass
+        else:
+            raise ValueError(f'expected attention_type in [causal, full] actual {self.attention_type}')
 
         if attention_mask is not None:
             # Apply the attention mask

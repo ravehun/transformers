@@ -135,7 +135,7 @@ class GPT2Config(PretrainedConfig):
         summary_first_dropout=0.1,
         bos_token_id=50256,
         eos_token_id=50256,
-        attention_type='casual',
+        attention_type='causal',
         **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
