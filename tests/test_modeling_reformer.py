@@ -338,8 +338,8 @@ class ReformerModelTester:
         loss_no_chunk, output_no_chunk = model(input_ids, labels=input_ids, attention_mask=input_mask)[:2]
         loss_no_chunk.backward()
         grad_slice_word_no_chunk = model.reformer.embeddings.word_embeddings.weight.grad[0, :5]
-        grad_slice_position_factor_1_no_chunk = model.reformer.embeddings.position_embeddings.weights[0][1, 0, -5:]
-        grad_slice_position_factor_2_no_chunk = model.reformer.embeddings.position_embeddings.weights[1][0, 1, :5]
+        grad_slice_position_factor_1_no_chunk = model.reformer.embeddings.position_embeddings.weight[0][1, 0, -5:]
+        grad_slice_position_factor_2_no_chunk = model.reformer.embeddings.position_embeddings.weight[1][0, 1, :5]
 
         config.chunk_size_lm_head = 1
         config.chunk_size_feed_forward = 1
@@ -352,8 +352,8 @@ class ReformerModelTester:
         loss_chunk, output_chunk = model(input_ids, labels=input_ids, attention_mask=input_mask)[:2]
         loss_chunk.backward()
         grad_slice_word_chunk = model.reformer.embeddings.word_embeddings.weight.grad[0, :5]
-        grad_slice_position_factor_1_chunk = model.reformer.embeddings.position_embeddings.weights[0][1, 0, -5:]
-        grad_slice_position_factor_2_chunk = model.reformer.embeddings.position_embeddings.weights[1][0, 1, :5]
+        grad_slice_position_factor_1_chunk = model.reformer.embeddings.position_embeddings.weight[0][1, 0, -5:]
+        grad_slice_position_factor_2_chunk = model.reformer.embeddings.position_embeddings.weight[1][0, 1, :5]
         self.parent.assertTrue(torch.allclose(loss_chunk, loss_no_chunk, atol=1e-3))
         self.parent.assertTrue(torch.allclose(grad_slice_word_no_chunk, grad_slice_word_chunk, atol=1e-3))
         self.parent.assertTrue(
@@ -964,11 +964,11 @@ class ReformerIntegrationTests(unittest.TestCase):
         expected_grad_slice_word = torch.tensor(
             [-0.0005, 0.0001, 0.0002, 0.0003, 0.0006], dtype=torch.float, device=torch_device,
         )
-        grad_slice_position_factor_1 = model.reformer.embeddings.position_embeddings.weights[0][1, 0, -5:]
+        grad_slice_position_factor_1 = model.reformer.embeddings.position_embeddings.weight[0][1, 0, -5:]
         expected_grad_slice_pos_fac_1 = torch.tensor(
             [0.0037, -1.3793, -1.0231, -1.5230, -2.5306], dtype=torch.float, device=torch_device,
         )
-        grad_slice_position_factor_2 = model.reformer.embeddings.position_embeddings.weights[1][0, 1, :5]
+        grad_slice_position_factor_2 = model.reformer.embeddings.position_embeddings.weight[1][0, 1, :5]
         expected_grad_slice_pos_fac_2 = torch.tensor(
             [-1.3165, 0.5168, 0.7785, 1.0811, -0.9830], dtype=torch.float, device=torch_device,
         )
@@ -997,11 +997,11 @@ class ReformerIntegrationTests(unittest.TestCase):
         expected_grad_slice_word = torch.tensor(
             [2.6357e-05, 4.3358e-04, -8.4985e-04, 1.0094e-04, 3.8954e-04], dtype=torch.float, device=torch_device,
         )
-        grad_slice_position_factor_1 = model.reformer.embeddings.position_embeddings.weights[0][1, 0, -5:]
+        grad_slice_position_factor_1 = model.reformer.embeddings.position_embeddings.weight[0][1, 0, -5:]
         expected_grad_slice_pos_fac_1 = torch.tensor(
             [-0.0984, 0.6283, 0.4282, 1.2960, 0.6897], dtype=torch.float, device=torch_device,
         )
-        grad_slice_position_factor_2 = model.reformer.embeddings.position_embeddings.weights[1][0, 1, :5]
+        grad_slice_position_factor_2 = model.reformer.embeddings.position_embeddings.weight[1][0, 1, :5]
         expected_grad_slice_pos_fac_2 = torch.tensor(
             [0.4626, -0.0231, -0.0172, 0.1081, 0.3805], dtype=torch.float, device=torch_device,
         )

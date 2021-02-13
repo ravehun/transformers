@@ -115,28 +115,30 @@ class GPT2Config(PretrainedConfig):
     model_type = "gpt2"
 
     def __init__(
-        self,
-        vocab_size=50257,
-        n_positions=1024,
-        n_ctx=1024,
-        n_embd=768,
-        n_layer=12,
-        n_head=12,
-        activation_function="gelu_new",
-        resid_pdrop=0.1,
-        embd_pdrop=0.1,
-        attn_pdrop=0.1,
-        layer_norm_epsilon=1e-5,
-        initializer_range=0.02,
-        summary_type="cls_index",
-        summary_use_proj=True,
-        summary_activation=None,
-        summary_proj_to_labels=True,
-        summary_first_dropout=0.1,
-        bos_token_id=50256,
-        eos_token_id=50256,
-        attention_type='causal',
-        **kwargs
+            self,
+            vocab_size=50257,
+            n_positions=1024,
+            n_ctx=1024,
+            n_embd=768,
+            n_layer=12,
+            n_head=12,
+            activation_function="gelu_new",
+            resid_pdrop=0.1,
+            embd_pdrop=0.1,
+            attn_pdrop=0.1,
+            layer_norm_epsilon=1e-5,
+            initializer_range=0.02,
+            summary_type="cls_index",
+            summary_use_proj=True,
+            summary_activation=None,
+            summary_proj_to_labels=True,
+            summary_first_dropout=0.1,
+            bos_token_id=50256,
+            eos_token_id=50256,
+            attention_type='causal',
+            n_experts=10,
+            use_switch=False,
+            **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
 
@@ -161,6 +163,8 @@ class GPT2Config(PretrainedConfig):
         self.bos_token_id = bos_token_id
         self.eos_token_id = eos_token_id
         self.attention_type = attention_type
+        self.n_experts = n_experts
+        self.use_switch = use_switch
 
     @property
     def max_position_embeddings(self):

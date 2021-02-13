@@ -150,7 +150,7 @@ class Attention(nn.Module):
             w = w / (float(v.size(-1)) ** 0.5)
         nd, ns = w.size(-2), w.size(-1)
         if self.attention_type == "causal":
-            mask = self.bias[:, :, ns - nd : ns, :ns]
+            mask = self.bias[:, :, ns - nd: ns, :ns]
             w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
         elif self.attention_type == "full":
             pass
@@ -187,7 +187,7 @@ class Attention(nn.Module):
             return x.permute(0, 2, 1, 3)  # (batch, head, seq_length, head_features)
 
     def forward(
-        self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False
+            self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False
     ):
         x = self.c_attn(x)
         query, key, value = x.split(self.split_size, dim=2)
@@ -215,6 +215,25 @@ class Attention(nn.Module):
         return outputs  # a, present, (attentions)
 
 
+class MoE(nn.Module):
+    def __init__(self, n_state, n_expert, config):
+        super().__init__()
+        self.n_state = n_state
+        self.n_expert = n_expert
+        self.dropout = nn.Dropout(config.resid_pdrop)
+        nx = config.n_embd
+        self.router = Conv1D(n_expert, nx)
+        self.act = ACT2FN[config.activation_function]
+        self.weight = nn.Parameter(torch.zeros(n_expert, n_state, n_state))
+        self.bias = nn.Parameter(torch.zeros(n_expert, n_state))
+
+    def forward(self, x):
+        experts_id = self.router(x).argmax(-1)
+        h = torch.einsum('...d,...dh->...h', x, self.weight[experts_id]) + self.bias[experts_id]
+        h = self.act(h)
+        return self.dropout(h)
+
+
 class MLP(nn.Module):
     def __init__(self, n_state, config):  # in MLP: n_state=3072 (4 * n_embd)
         super().__init__()
@@ -237,10 +256,13 @@ class Block(nn.Module):
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
+        if config.use_switch:
+            self.feature_mapping = MoE(nx, config.n_experts, config)
+        else:
+            self.feature_mapping = MLP(4 * nx, config)
 
     def forward(
-        self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
+            self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
     ):
         output_attn = self.attn(
             self.ln_1(x),
@@ -253,7 +275,7 @@ class Block(nn.Module):
         a = output_attn[0]  # output_attn: a, present, (attentions)
 
         x = x + a
-        m = self.mlp(self.ln_2(x))
+        m = self.feature_mapping(self.ln_2(x))
         x = x + m
 
         outputs = [x] + output_attn[1:]
@@ -275,6 +297,7 @@ class GPT2PreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """ Initialize the weights.
         """
+        classname = module.__class__.__name__
         if isinstance(module, (nn.Linear, nn.Embedding, Conv1D)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
@@ -284,6 +307,9 @@ class GPT2PreTrainedModel(PreTrainedModel):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
+        elif classname.find("MoE") != -1:
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.bias.data.zero_()
 
 
 GPT2_START_DOCSTRING = r"""
@@ -380,17 +406,17 @@ class GPT2Model(GPT2PreTrainedModel):
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(tokenizer_class=_TOKENIZER_FOR_DOC, checkpoint="gpt2")
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
     ):
         r"""
     Return:
@@ -552,18 +578,18 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(tokenizer_class=_TOKENIZER_FOR_DOC, checkpoint="gpt2")
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
     ):
         r"""
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
@@ -646,21 +672,21 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
 
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        mc_token_ids=None,
-        labels=None,
-        mc_labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        **kwargs
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            mc_token_ids=None,
+            labels=None,
+            mc_labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            **kwargs
     ):
         r"""
         mc_token_ids (:obj:`torch.LongTensor` of shape :obj:`(batch_size, num_choices)`, `optional`, default to index of the last token of the input)

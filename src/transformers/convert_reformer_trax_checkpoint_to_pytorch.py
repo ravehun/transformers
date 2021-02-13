@@ -137,12 +137,12 @@ def set_model_weights_in_torch(weights, torch_model, hidden_size):
 
     if isinstance(weights[3], tuple):
         position_embeddings = torch_model_reformer.embeddings.position_embeddings
-        for emb_idx in range(len(position_embeddings.weights)):
+        for emb_idx in range(len(position_embeddings.weight)):
             emb_weights = np.asarray(weights[3][emb_idx][0])
-            assert position_embeddings.weights[emb_idx].shape == emb_weights.shape, "{} emb does not match".format(
+            assert position_embeddings.weight[emb_idx].shape == emb_weights.shape, "{} emb does not match".format(
                 position_embeddings[emb_idx]
             )
-            position_embeddings.weights[emb_idx] = torch.nn.Parameter(torch.tensor(emb_weights))
+            position_embeddings.weight[emb_idx] = torch.nn.Parameter(torch.tensor(emb_weights))
 
     trax_layer_weights = weights[5]
     assert len(torch_model_reformer.encoder.layers) * 4 == len(
