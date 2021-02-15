@@ -15,7 +15,6 @@
 # limitations under the License.
 """PyTorch OpenAI GPT-2 model."""
 
-
 import logging
 import os
 import warnings
@@ -33,8 +32,8 @@ from .modeling_utils import (
     SequenceSummary,
     find_pruneable_heads_and_indices,
     prune_conv1d_layer,
+    clone_module_list,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -215,25 +214,6 @@ class Attention(nn.Module):
         return outputs  # a, present, (attentions)
 
 
-class MoE(nn.Module):
-    def __init__(self, n_state, n_expert, config):
-        super().__init__()
-        self.n_state = n_state
-        self.n_expert = n_expert
-        self.dropout = nn.Dropout(config.resid_pdrop)
-        nx = config.n_embd
-        self.router = Conv1D(n_expert, nx)
-        self.act = ACT2FN[config.activation_function]
-        self.weight = nn.Parameter(torch.zeros(n_expert, n_state, n_state))
-        self.bias = nn.Parameter(torch.zeros(n_expert, n_state))
-
-    def forward(self, x):
-        experts_id = self.router(x).argmax(-1)
-        h = torch.einsum('...d,...dh->...h', x, self.weight[experts_id]) + self.bias[experts_id]
-        h = self.act(h)
-        return self.dropout(h)
-
-
 class MLP(nn.Module):
     def __init__(self, n_state, config):  # in MLP: n_state=3072 (4 * n_embd)
         super().__init__()
@@ -249,6 +229,124 @@ class MLP(nn.Module):
         return self.dropout(h2)
 
 
+class SwitchFeedForward(nn.Module):
+    """
+    ## Routing among multiple FFNs
+    """
+
+    def __init__(self, *,
+                 capacity_factor: float,
+                 drop_tokens: bool,
+                 is_scale_prob: bool,
+                 n_experts: int,
+                 expert: MLP,
+                 d_model: int):
+        """
+        * `capacity_factor` is the capacity of each expert as a factor relative to ideally balanced load
+        * `drop_tokens` specifies whether to drop tokens if more tokens are routed to an expert than the capacity
+        * `is_scale_prob` specifies whether to multiply the input to the FFN by the routing probability
+        * `n_experts` is the number of experts
+        * `expert` is the expert layer, a [FFN module](../feed_forward.html)
+        * `d_model` is the number of features in a token embedding
+        * `d_ff` is the number of features in the hidden layer of the FFN
+        * `dropout` is dropout probability in the FFN
+        """
+        super().__init__()
+
+        self.capacity_factor = capacity_factor
+        self.is_scale_prob = is_scale_prob
+        self.n_experts = n_experts
+        self.drop_tokens = drop_tokens
+
+        # make copies of the FFNs
+        self.experts = clone_module_list(expert, n_experts)
+        # Routing layer and softmax
+        self.switch = nn.Linear(d_model, n_experts)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x: torch.Tensor):
+        """
+        * `x` is the input to the switching module with shape `[seq_len, batch_size, d_model]`
+        """
+
+        # Capture the shape to change shapes later
+        seq_len, batch_size, d_model = x.shape
+        # Flatten the sequence and batch dimensions
+        x = x.view(-1, d_model)
+
+        # Get routing probabilities for each of the tokens.
+        # $$p_i(x) = \frac{e^{h(x)_i}}{\sum^N_j e^{h(x)_j}}$$
+        # where $N$ is the number of experts `n_experts` and
+        # $h(\cdot)$ is the linear transformation of token embeddings.
+        route_prob = self.softmax(self.switch(x))
+
+        # Get the maximum routing probabilities and the routes.
+        # We route to the expert with highest probability
+        route_prob_max, routes = torch.max(route_prob, dim=-1)
+
+        # Scale the inputs to the experts by the routing probabilities
+        if self.is_scale_prob:
+            factor = route_prob_max
+        # Don't scale the values but multiply by $\frac{p}{\hat{p}} = 1$ so that the gradients flow
+        else:
+            factor = route_prob_max / route_prob_max.detach()
+        # Multiply by the scaling factor
+        x = x * factor.view(-1, 1)
+
+        # Get indexes of tokens going to each expert
+        indexes_list = [torch.eq(routes, i).nonzero(as_tuple=True)[0] for i in range(self.n_experts)]
+
+        # Initialize an empty tensor to store outputs
+        final_output = x.new_zeros(x.shape)
+
+        # Capacity of each expert.
+        # $$\mathrm{expert\;capacity} =
+        # \frac{\mathrm{tokens\;per\;batch}}{\mathrm{number\;of\;experts}}
+        # \times \mathrm{capacity\;factor}$$
+        capacity = int(self.capacity_factor * len(x) / self.n_experts)
+        # Number of tokens routed to each expert.
+        counts = x.new_tensor([len(indexes_list[i]) for i in range(self.n_experts)])
+
+        # Initialize an empty list of dropped tokens
+        dropped = []
+        # Only drop tokens if `drop_tokens` is `True`.
+        if self.drop_tokens:
+            # Drop tokens in each of the experts
+            for i in range(self.n_experts):
+                # Ignore if the expert is not over capacity
+                if len(indexes_list[i]) <= capacity:
+                    continue
+                # Shuffle indexes before dropping
+                indexes_list[i] = indexes_list[i][torch.randperm(len(indexes_list[i]))]
+                # Collect the tokens over capacity as dropped tokens
+                dropped.append(indexes_list[i][capacity:])
+                # Keep only the tokens upto the capacity of the expert
+                indexes_list[i] = indexes_list[i][:capacity]
+
+        # Get outputs of the expert FFNs
+        route_outputs = [self.experts[i](x[indexes_list[i], :]) for i in range(self.n_experts)]
+
+        # Assign to final output
+        for i in range(self.n_experts):
+            final_output[indexes_list[i], :] = route_outputs[i]
+
+        # Pass through the dropped tokens
+        if dropped:
+            dropped = torch.cat(dropped)
+            final_output[dropped, :] = x[dropped, :]
+
+        # Change the shape of the final output back to `[seq_len, batch_size, d_model]`
+        final_output = final_output.view(seq_len, batch_size, d_model)
+
+        # Return
+        # * the final output
+        # * number of tokens routed to each expert
+        # * sum of probabilities for each expert
+        # * number of tokens dropped.
+        # These are used for the load balancing loss and logging
+        return final_output, counts, route_prob.sum(0), len(dropped)
+
+
 class Block(nn.Module):
     def __init__(self, n_ctx, config, scale=False):
         super().__init__()
@@ -257,7 +355,14 @@ class Block(nn.Module):
         self.attn = Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         if config.use_switch:
-            self.feature_mapping = MoE(nx, config.n_experts, config)
+            self.feature_mapping = SwitchFeedForward(
+                capacity_factor=config.capacity_factor,
+                drop_tokens=True,
+                is_scale_prob=True,
+                n_experts=config.n_experts,
+                expert=MLP(4 * nx, config),
+                d_model=nx,
+            )
         else:
             self.feature_mapping = MLP(4 * nx, config)
 
@@ -275,10 +380,10 @@ class Block(nn.Module):
         a = output_attn[0]  # output_attn: a, present, (attentions)
 
         x = x + a
-        m = self.feature_mapping(self.ln_2(x))
+        m, counts, route_prob, n_dropped = self.feature_mapping(self.ln_2(x))
         x = x + m
 
-        outputs = [x] + output_attn[1:]
+        outputs = [x] + output_attn[1:] + [counts, route_prob, n_dropped]
         return outputs  # x, present, (attentions)
 
 
@@ -512,6 +617,9 @@ class GPT2Model(GPT2PreTrainedModel):
         presents = ()
         all_attentions = []
         all_hidden_states = ()
+        all_counts = []
+        all_route_prob = []
+        all_n_dropped = []
         for i, (block, layer_past) in enumerate(zip(self.h, past)):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states.view(*output_shape),)
@@ -525,7 +633,11 @@ class GPT2Model(GPT2PreTrainedModel):
                 output_attentions=output_attentions,
             )
 
-            hidden_states, present = outputs[:2]
+            hidden_states, present, counts, route_prob, n_dropped = outputs[:5]
+            all_counts.append(counts)
+            all_route_prob.append(route_prob)
+            all_n_dropped.append(n_dropped)
+            
             if use_cache is True:
                 presents = presents + (present,)
 
@@ -548,7 +660,12 @@ class GPT2Model(GPT2PreTrainedModel):
             # let the number of heads free (-1) so we can extract attention even after head pruning
             attention_output_shape = input_shape[:-1] + (-1,) + all_attentions[0].shape[-2:]
             all_attentions = tuple(t.view(*attention_output_shape) for t in all_attentions)
-            outputs = outputs + (all_attentions,)
+            outputs = outputs + (all_attentions, )
+
+        if self.config.use_switch:
+            print([f'{i.shape}' for i in all_counts])
+
+            outputs = outputs + (torch.stack(all_counts), torch.stack(all_route_prob), all_n_dropped,)
         return outputs  # last hidden state, (presents), (all hidden_states), (attentions)
 
 

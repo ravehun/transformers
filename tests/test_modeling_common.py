@@ -147,7 +147,7 @@ class ModelTesterMixin:
             model.eval()
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
             self.assertEqual(len(attentions), self.model_tester.num_hidden_layers)
 
             # check that output_attentions also work using config
@@ -158,7 +158,7 @@ class ModelTesterMixin:
             model.eval()
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
             self.assertEqual(len(attentions), self.model_tester.num_hidden_layers)
 
             if chunk_length is not None:
@@ -205,7 +205,7 @@ class ModelTesterMixin:
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
             self.assertEqual(out_len + (2 if self.is_encoder_decoder else 1), len(outputs))
 
-            self_attentions = outputs[-1]
+            self_attentions = outputs[-4]
             self.assertEqual(len(self_attentions), self.model_tester.num_hidden_layers)
             if chunk_length is not None:
                 self.assertListEqual(
@@ -318,7 +318,7 @@ class ModelTesterMixin:
             output.backward()
             multihead_outputs = head_mask.grad
 
-            attentions = outputs[-1]
+            attentions = outputs[-4]
 
             # Remove Nan
             for t in attentions:
@@ -360,7 +360,7 @@ class ModelTesterMixin:
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
 
-            attentions = outputs[-1]
+            attentions = outputs[-4]
 
             self.assertEqual(attentions[0].shape[-3], 1)
             self.assertEqual(attentions[1].shape[-3], self.model_tester.num_attention_heads)
@@ -394,7 +394,7 @@ class ModelTesterMixin:
 
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
             self.assertEqual(attentions[0].shape[-3], 1)
             self.assertEqual(attentions[1].shape[-3], self.model_tester.num_attention_heads)
             self.assertEqual(attentions[-1].shape[-3], self.model_tester.num_attention_heads - 1)
@@ -424,7 +424,7 @@ class ModelTesterMixin:
 
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
 
             self.assertEqual(attentions[0].shape[-3], 1)
             self.assertEqual(attentions[1].shape[-3], self.model_tester.num_attention_heads)
@@ -452,7 +452,7 @@ class ModelTesterMixin:
 
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
 
             self.assertEqual(attentions[0].shape[-3], self.model_tester.num_attention_heads - 1)
             self.assertEqual(attentions[1].shape[-3], self.model_tester.num_attention_heads - 2)
@@ -466,7 +466,7 @@ class ModelTesterMixin:
 
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
 
             self.assertEqual(attentions[0].shape[-3], self.model_tester.num_attention_heads - 1)
             self.assertEqual(attentions[1].shape[-3], self.model_tester.num_attention_heads - 2)
@@ -478,7 +478,7 @@ class ModelTesterMixin:
 
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            attentions = outputs[-1]
+            attentions = outputs[-4]
 
             self.assertEqual(attentions[0].shape[-3], self.model_tester.num_attention_heads - 1)
             self.assertEqual(attentions[1].shape[-3], self.model_tester.num_attention_heads - 2)
@@ -495,7 +495,7 @@ class ModelTesterMixin:
 
             with torch.no_grad():
                 outputs = model(**self._prepare_for_class(inputs_dict, model_class))
-            hidden_states = outputs[-1]
+            hidden_states = outputs[-4]
 
             self.assertEqual(len(hidden_states), self.model_tester.num_hidden_layers + 1)
             if hasattr(self.model_tester, "encoder_seq_length"):

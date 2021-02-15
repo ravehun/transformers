@@ -15,11 +15,9 @@
 # limitations under the License.
 """ OpenAI GPT-2 configuration """
 
-
 import logging
 
 from .configuration_utils import PretrainedConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +135,8 @@ class GPT2Config(PretrainedConfig):
             eos_token_id=50256,
             attention_type='causal',
             n_experts=10,
-            use_switch=False,
+            use_switch=True,
+            capacity_factor=1.0,
             **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
@@ -165,6 +164,7 @@ class GPT2Config(PretrainedConfig):
         self.attention_type = attention_type
         self.n_experts = n_experts
         self.use_switch = use_switch
+        self.capacity_factor = capacity_factor
 
     @property
     def max_position_embeddings(self):

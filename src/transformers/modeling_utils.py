@@ -13,7 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import copy
 import inspect
 import logging
 import os
@@ -68,6 +68,13 @@ def find_pruneable_heads_and_indices(
     mask = mask.view(-1).contiguous().eq(1)
     index: torch.LongTensor = torch.arange(len(mask))[mask].long()
     return heads, index
+
+
+def clone_module_list(module: nn.Module, n: int):
+    """
+    ## Make a `nn.ModuleList` with clones of a given layer
+    """
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(n)])
 
 
 class ModuleUtilsMixin:
