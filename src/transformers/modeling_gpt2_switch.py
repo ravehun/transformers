@@ -254,14 +254,14 @@ class MoE(nn.Module):
         experts_id: torch.Tensor = route_prob.argmax(-1)
 
         reached_experts, incomplete_counts = experts_id.unique(return_counts=True)
-        expert_counts = torch.zeros(self.n_expert)
+        expert_counts = reached_experts.new_zeros(self.n_expert)
         for re, ic in zip(reached_experts, incomplete_counts):
             expert_counts[re] += ic
 
         capacity = self.capacity_factor / self.n_expert * np.prod(x.shape)
         drop_ratio = capacity / expert_counts
         drop_ratio = drop_ratio[experts_id]
-        mask = torch.rand(*experts_id.shape) < drop_ratio
+        mask = torch.rand(*experts_id.shape, device=route_prob.device) < drop_ratio
 
         dropped = (expert_counts - capacity).abs()
 
