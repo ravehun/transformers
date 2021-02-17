@@ -12,8 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
+import numpy as np
 import unittest
 
 from transformers import is_torch_available
@@ -152,9 +151,10 @@ class GPT2ModelTester:
 
         model(input_ids, token_type_ids=token_type_ids, head_mask=head_mask)
         model(input_ids, token_type_ids=token_type_ids)
-        sequence_output, presents, all_counts, all_route_prob, all_n_dropped\
+        sequence_output, presents, all_counts, all_route_prob, all_n_dropped \
             = model(input_ids)
-
+        n_tokens = np.prod(input_ids.shape)
+        capacity = round(config.capacity_factor * n_tokens / config.n_experts)
         result = {
             "sequence_output": sequence_output,
             "presents": presents,
@@ -163,6 +163,7 @@ class GPT2ModelTester:
             list(result["sequence_output"].size()), [self.batch_size, self.seq_length, self.hidden_size],
         )
         self.parent.assertEqual(len(result["presents"]), config.n_layer)
+        self.parent.assertEqual(torch.sum((all_counts - torch.stack(all_n_dropped)) > capacity), 0)
 
     def create_and_check_gpt2_model_past(self, config, input_ids, input_mask, head_mask, token_type_ids, *args):
         model = GPT2SwitchModel(config=config)
@@ -308,7 +309,8 @@ class GPT2ModelTester:
 
 @require_torch
 class GPT2ModelTest(ModelTesterMixin, unittest.TestCase):
-    all_model_classes = (GPT2SwitchModel, GPT2SwitchLMHeadModel, GPT2SwitchDoubleHeadsModel) if is_torch_available() else ()
+    all_model_classes = (
+        GPT2SwitchModel, GPT2SwitchLMHeadModel, GPT2SwitchDoubleHeadsModel) if is_torch_available() else ()
     all_generative_model_classes = (
         (GPT2SwitchLMHeadModel,) if is_torch_available() else ()
     )  # TODO (PVP): Add Double HeadsModel when generate() function is changed accordingly
@@ -329,15 +331,18 @@ class GPT2ModelTest(ModelTesterMixin, unittest.TestCase):
         # in one stage pass, experts bucket will be probably different from two stage pass
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_gpt2_model_past(*config_and_inputs)
+
     @slow
     def test_gpt2_model_att_mask_past(self):
-        #in one stage pass, experts bucket will be probably different from two stage pass
+        # in one stage pass, experts bucket will be probably different from two stage pass
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_gpt2_model_attention_mask_past(*config_and_inputs)
+
     @slow
     def test_gpt2_lm_head_model(self):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_lm_head_model(*config_and_inputs)
+
     @slow
     def test_gpt2_double_lm_head_model(self):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
