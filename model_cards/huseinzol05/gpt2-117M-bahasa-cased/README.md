@@ -31,9 +31,9 @@ Preprocessing steps can reproduce from here, [Malaya/pretrained-model/preprocess
 You can use this model by installing `torch` or `tensorflow` and Huggingface library `transformers`. And you can use it directly by initializing it like this:  
 
 ```python
-from transformers import GPT2Tokenizer, GPT2Model
+from transformers import GPT2Tokenizer, GPT2SwitchModel
 
-model = GPT2Model.from_pretrained('huseinzol05/gpt2-117M-bahasa-cased')
+model = GPT2SwitchModel.from_pretrained('huseinzol05/gpt2-117M-bahasa-cased')
 tokenizer = GPT2Tokenizer.from_pretrained(
     'huseinzol05/gpt2-117M-bahasa-cased',
 )
@@ -42,10 +42,10 @@ tokenizer = GPT2Tokenizer.from_pretrained(
 ## Example using GPT2LMHeadModel
 
 ```python
-from transformers import GPT2Tokenizer, GPT2LMHeadModel
+from transformers import GPT2Tokenizer, GPT2SwitchLMHeadModel
 
 tokenizer = GPT2Tokenizer.from_pretrained('huseinzol05/gpt2-117M-bahasa-cased')
-model = GPT2LMHeadModel.from_pretrained(
+model = GPT2SwitchLMHeadModel.from_pretrained(
     'huseinzol05/gpt2-117M-bahasa-cased', pad_token_id = tokenizer.eos_token_id
 )
 

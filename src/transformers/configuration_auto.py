@@ -14,7 +14,6 @@
 # limitations under the License.
 """ Auto Config class. """
 
-
 import logging
 from collections import OrderedDict
 
@@ -27,6 +26,7 @@ from .configuration_distilbert import DISTILBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, 
 from .configuration_electra import ELECTRA_PRETRAINED_CONFIG_ARCHIVE_MAP, ElectraConfig
 from .configuration_encoder_decoder import EncoderDecoderConfig
 from .configuration_flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig
+from .configuration_gpt2_switch import GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP, GPT2SwitchConfig
 from .configuration_gpt2 import GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP, GPT2Config
 from .configuration_longformer import LONGFORMER_PRETRAINED_CONFIG_ARCHIVE_MAP, LongformerConfig
 from .configuration_marian import MarianConfig
@@ -42,9 +42,7 @@ from .configuration_xlm import XLM_PRETRAINED_CONFIG_ARCHIVE_MAP, XLMConfig
 from .configuration_xlm_roberta import XLM_ROBERTA_PRETRAINED_CONFIG_ARCHIVE_MAP, XLMRobertaConfig
 from .configuration_xlnet import XLNET_PRETRAINED_CONFIG_ARCHIVE_MAP, XLNetConfig
 
-
 logger = logging.getLogger(__name__)
-
 
 ALL_PRETRAINED_CONFIG_ARCHIVE_MAP = dict(
     (key, value)
@@ -71,7 +69,6 @@ ALL_PRETRAINED_CONFIG_ARCHIVE_MAP = dict(
     for key, value, in pretrained_map.items()
 )
 
-
 CONFIG_MAPPING = OrderedDict(
     [
         ("retribert", RetriBertConfig,),
@@ -91,6 +88,7 @@ CONFIG_MAPPING = OrderedDict(
         ("bert", BertConfig,),
         ("openai-gpt", OpenAIGPTConfig,),
         ("gpt2", GPT2Config,),
+        ("gpt2switch", GPT2SwitchConfig,),
         ("transfo-xl", TransfoXLConfig,),
         ("xlnet", XLNetConfig,),
         ("xlm", XLMConfig,),

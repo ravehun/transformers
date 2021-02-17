@@ -30,6 +30,8 @@ from .configuration_distilbert import DISTILBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, 
 from .configuration_electra import ELECTRA_PRETRAINED_CONFIG_ARCHIVE_MAP, ElectraConfig
 from .configuration_encoder_decoder import EncoderDecoderConfig
 from .configuration_flaubert import FLAUBERT_PRETRAINED_CONFIG_ARCHIVE_MAP, FlaubertConfig
+from .configuration_gpt2_switch import GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP, GPT2SwitchConfig
+
 from .configuration_gpt2 import GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP, GPT2Config
 from .configuration_longformer import LONGFORMER_PRETRAINED_CONFIG_ARCHIVE_MAP, LongformerConfig
 from .configuration_marian import MarianConfig
@@ -245,6 +247,14 @@ if is_torch_available():
         GPT2Model,
         GPT2LMHeadModel,
         GPT2DoubleHeadsModel,
+        load_tf_weights_in_gpt2,
+        GPT2_PRETRAINED_MODEL_ARCHIVE_LIST,
+    )
+    from .modeling_gpt2_switch import (
+        GPT2SwitchPreTrainedModel,
+        GPT2SwitchModel,
+        GPT2SwitchLMHeadModel,
+        GPT2SwitchDoubleHeadsModel,
         load_tf_weights_in_gpt2,
         GPT2_PRETRAINED_MODEL_ARCHIVE_LIST,
     )

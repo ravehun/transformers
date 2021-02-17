@@ -16,7 +16,7 @@
 
 import unittest
 
-from transformers import GPT2Config, is_tf_available
+from transformers import GPT2SwitchConfig, is_tf_available
 from transformers.testing_utils import require_tf, slow
 
 from .test_configuration_common import ConfigTester
@@ -87,7 +87,7 @@ class TFGPT2ModelTester:
             token_labels = ids_tensor([self.batch_size, self.seq_length], self.num_labels)
             choice_labels = ids_tensor([self.batch_size], self.num_choices)
 
-        config = GPT2Config(
+        config = GPT2SwitchConfig(
             vocab_size=self.vocab_size,
             n_embd=self.hidden_size,
             n_layer=self.num_hidden_layers,
@@ -281,7 +281,7 @@ class TFGPT2ModelTest(TFModelTesterMixin, unittest.TestCase):
 
     def setUp(self):
         self.model_tester = TFGPT2ModelTester(self)
-        self.config_tester = ConfigTester(self, config_class=GPT2Config, n_embd=37)
+        self.config_tester = ConfigTester(self, config_class=GPT2SwitchConfig, n_embd=37)
 
     def test_config(self):
         self.config_tester.run_common_tests()

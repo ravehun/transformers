@@ -22,6 +22,7 @@ from transformers.testing_utils import require_torch, slow, torch_device
 from .test_configuration_common import ConfigTester
 from .test_modeling_common import ModelTesterMixin, ids_tensor
 
+
 if is_torch_available():
     import torch
     from transformers import (
@@ -35,30 +36,30 @@ if is_torch_available():
 
 class GPT2ModelTester:
     def __init__(
-            self,
-            parent,
-            batch_size=14,
-            seq_length=7,
-            is_training=True,
-            use_token_type_ids=True,
-            use_input_mask=True,
-            use_labels=True,
-            use_mc_token_ids=True,
-            vocab_size=99,
-            hidden_size=32,
-            num_hidden_layers=5,
-            num_attention_heads=4,
-            intermediate_size=37,
-            hidden_act="gelu",
-            hidden_dropout_prob=0.1,
-            attention_probs_dropout_prob=0.1,
-            max_position_embeddings=512,
-            type_vocab_size=16,
-            type_sequence_label_size=2,
-            initializer_range=0.02,
-            num_labels=3,
-            num_choices=4,
-            scope=None,
+        self,
+        parent,
+        batch_size=14,
+        seq_length=7,
+        is_training=True,
+        use_token_type_ids=True,
+        use_input_mask=True,
+        use_labels=True,
+        use_mc_token_ids=True,
+        vocab_size=99,
+        hidden_size=32,
+        num_hidden_layers=5,
+        num_attention_heads=4,
+        intermediate_size=37,
+        hidden_act="gelu",
+        hidden_dropout_prob=0.1,
+        attention_probs_dropout_prob=0.1,
+        max_position_embeddings=512,
+        type_vocab_size=16,
+        type_sequence_label_size=2,
+        initializer_range=0.02,
+        num_labels=3,
+        num_choices=4,
+        scope=None,
     ):
         self.parent = parent
         self.batch_size = 14
@@ -124,8 +125,6 @@ class GPT2ModelTester:
             # initializer_range=self.initializer_range
             bos_token_id=self.bos_token_id,
             eos_token_id=self.eos_token_id,
-            use_switch=True,
-            attention_type='causal',
         )
 
         head_mask = ids_tensor([self.num_hidden_layers, self.num_attention_heads], 2)
@@ -152,8 +151,7 @@ class GPT2ModelTester:
 
         model(input_ids, token_type_ids=token_type_ids, head_mask=head_mask)
         model(input_ids, token_type_ids=token_type_ids)
-        sequence_output, presents, all_counts, all_route_prob, all_n_dropped\
-            = model(input_ids)
+        sequence_output, presents = model(input_ids)
 
         result = {
             "sequence_output": sequence_output,
@@ -199,7 +197,7 @@ class GPT2ModelTester:
         self.parent.assertTrue(torch.allclose(output_from_past_slice, output_from_no_past_slice, atol=1e-3))
 
     def create_and_check_gpt2_model_attention_mask_past(
-            self, config, input_ids, input_mask, head_mask, token_type_ids, *args
+        self, config, input_ids, input_mask, head_mask, token_type_ids, *args
     ):
         model = GPT2Model(config=config)
         model.to(torch_device)
@@ -211,7 +209,7 @@ class GPT2ModelTester:
         attn_mask[:, half_seq_length:] = 0
 
         # first forward pass
-        output, past = model(input_ids, attention_mask=attn_mask)[:2]
+        output, past = model(input_ids, attention_mask=attn_mask)
 
         # create hypothetical next token and extent to next_input_ids
         next_tokens = ids_tensor((self.batch_size, 1), config.vocab_size)
@@ -228,8 +226,8 @@ class GPT2ModelTester:
         )
 
         # get two different outputs
-        output_from_no_past, _ = model(next_input_ids, attention_mask=attn_mask)[:2]
-        output_from_past, _ = model(next_tokens, past=past, attention_mask=attn_mask)[:2]
+        output_from_no_past, _ = model(next_input_ids, attention_mask=attn_mask)
+        output_from_past, _ = model(next_tokens, past=past, attention_mask=attn_mask)
 
         # select random slice
         random_slice_idx = ids_tensor((1,), output_from_past.shape[-1]).item()
@@ -237,7 +235,6 @@ class GPT2ModelTester:
         output_from_past_slice = output_from_past[:, 0, random_slice_idx].detach()
 
         # test that outputs are equal for slice
-        print(output_from_past_slice-output_from_no_past_slice)
         self.parent.assertTrue(torch.allclose(output_from_past_slice, output_from_no_past_slice, atol=1e-3))
 
     def create_and_check_lm_head_model(self, config, input_ids, input_mask, head_mask, token_type_ids, *args):
@@ -255,7 +252,7 @@ class GPT2ModelTester:
         )
 
     def create_and_check_double_lm_head_model(
-            self, config, input_ids, input_mask, head_mask, token_type_ids, mc_token_ids, *args
+        self, config, input_ids, input_mask, head_mask, token_type_ids, mc_token_ids, *args
     ):
         model = GPT2DoubleHeadsModel(config)
         model.to(torch_device)
@@ -309,6 +306,7 @@ class GPT2ModelTester:
 
 @require_torch
 class GPT2ModelTest(ModelTesterMixin, unittest.TestCase):
+
     all_model_classes = (GPT2Model, GPT2LMHeadModel, GPT2DoubleHeadsModel) if is_torch_available() else ()
     all_generative_model_classes = (
         (GPT2LMHeadModel,) if is_torch_available() else ()
@@ -325,22 +323,18 @@ class GPT2ModelTest(ModelTesterMixin, unittest.TestCase):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_gpt2_model(*config_and_inputs)
 
-    @slow
     def test_gpt2_model_past(self):
-        # in one stage pass, experts bucket will be probably different from two stage pass
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_gpt2_model_past(*config_and_inputs)
-    @slow
+
     def test_gpt2_model_att_mask_past(self):
-        #in one stage pass, experts bucket will be probably different from two stage pass
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_gpt2_model_attention_mask_past(*config_and_inputs)
-    @slow
+
     def test_gpt2_lm_head_model(self):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_lm_head_model(*config_and_inputs)
 
-    @slow
     def test_gpt2_double_lm_head_model(self):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_double_lm_head_model(*config_and_inputs)

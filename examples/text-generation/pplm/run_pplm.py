@@ -36,7 +36,7 @@ from tqdm import trange
 from pplm_classification_head import ClassificationHead
 from transformers import GPT2Tokenizer
 from transformers.file_utils import cached_path
-from transformers.modeling_gpt2 import GPT2LMHeadModel
+from transformers.modeling_gpt2_switch import GPT2SwitchLMHeadModel
 
 
 PPLM_BOW = 1
@@ -614,7 +614,7 @@ def run_pplm_example(
         print("discrim = {}, pretrained_model set to discriminator's = {}".format(discrim, pretrained_model))
 
     # load pretrained model
-    model = GPT2LMHeadModel.from_pretrained(pretrained_model, output_hidden_states=True)
+    model = GPT2SwitchLMHeadModel.from_pretrained(pretrained_model, output_hidden_states=True)
     model.to(device)
     model.eval()
 

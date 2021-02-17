@@ -34,8 +34,8 @@ from transformers import (
     DistilBertConfig,
     DistilBertForMaskedLM,
     DistilBertTokenizer,
-    GPT2Config,
-    GPT2LMHeadModel,
+    GPT2SwitchConfig,
+    GPT2SwitchLMHeadModel,
     GPT2Tokenizer,
     RobertaConfig,
     RobertaForMaskedLM,
@@ -48,7 +48,7 @@ MODEL_CLASSES = {
     "distilbert": (DistilBertConfig, DistilBertForMaskedLM, DistilBertTokenizer),
     "roberta": (RobertaConfig, RobertaForMaskedLM, RobertaTokenizer),
     "bert": (BertConfig, BertForMaskedLM, BertTokenizer),
-    "gpt2": (GPT2Config, GPT2LMHeadModel, GPT2Tokenizer),
+    "gpt2": (GPT2SwitchConfig, GPT2SwitchLMHeadModel, GPT2Tokenizer),
 }
 
 

@@ -21,7 +21,7 @@ import logging
 import numpy as np
 import tensorflow as tf
 
-from .configuration_gpt2 import GPT2Config
+from .configuration_gpt2_switch import GPT2SwitchConfig
 from .file_utils import add_code_sample_docstrings, add_start_docstrings, add_start_docstrings_to_callable
 from .modeling_tf_utils import (
     TFConv1D,
@@ -211,7 +211,7 @@ class TFBlock(tf.keras.layers.Layer):
 
 @keras_serializable
 class TFGPT2MainLayer(tf.keras.layers.Layer):
-    config_class = GPT2Config
+    config_class = GPT2SwitchConfig
 
     def __init__(self, config, *inputs, **kwargs):
         super().__init__(*inputs, **kwargs)
@@ -401,7 +401,7 @@ class TFGPT2PreTrainedModel(TFPreTrainedModel):
         a simple interface for downloading and loading pretrained models.
     """
 
-    config_class = GPT2Config
+    config_class = GPT2SwitchConfig
     base_model_prefix = "transformer"
 
 

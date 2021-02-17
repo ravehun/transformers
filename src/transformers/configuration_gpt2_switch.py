@@ -15,11 +15,9 @@
 # limitations under the License.
 """ OpenAI GPT-2 configuration """
 
-
 import logging
 
 from .configuration_utils import PretrainedConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +30,7 @@ GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP = {
 }
 
 
-class GPT2Config(PretrainedConfig):
+class GPT2SwitchConfig(PretrainedConfig):
     """
         This is the configuration class to store the configuration of a :class:`~transformers.GPT2Model`.
         It is used to instantiate an GPT-2 model according to the specified arguments, defining the model
@@ -100,13 +98,13 @@ class GPT2Config(PretrainedConfig):
 
         Example::
 
-            >>> from transformers import GPT2Model, GPT2Config
+            >>> from transformers import GPT2SwitchModel, GPT2SwitchConfig
 
             >>> # Initializing a GPT2 configuration
-            >>> configuration = GPT2Config()
+            >>> configuration = GPT2SwitchConfig()
 
             >>> # Initializing a model from the configuration
-            >>> model = GPT2Model(configuration)
+            >>> model = GPT2SwitchModel(configuration)
 
             >>> # Accessing the model configuration
             >>> configuration = model.config
@@ -115,28 +113,31 @@ class GPT2Config(PretrainedConfig):
     model_type = "gpt2"
 
     def __init__(
-        self,
-        vocab_size=50257,
-        n_positions=1024,
-        n_ctx=1024,
-        n_embd=768,
-        n_layer=12,
-        n_head=12,
-        activation_function="gelu_new",
-        resid_pdrop=0.1,
-        embd_pdrop=0.1,
-        attn_pdrop=0.1,
-        layer_norm_epsilon=1e-5,
-        initializer_range=0.02,
-        summary_type="cls_index",
-        summary_use_proj=True,
-        summary_activation=None,
-        summary_proj_to_labels=True,
-        summary_first_dropout=0.1,
-        bos_token_id=50256,
-        eos_token_id=50256,
-        attention_type='causal',
-        **kwargs
+            self,
+            vocab_size=50257,
+            n_positions=1024,
+            n_ctx=1024,
+            n_embd=768,
+            n_layer=12,
+            n_head=12,
+            activation_function="gelu_new",
+            resid_pdrop=0.1,
+            embd_pdrop=0.1,
+            attn_pdrop=0.1,
+            layer_norm_epsilon=1e-5,
+            initializer_range=0.02,
+            summary_type="cls_index",
+            summary_use_proj=True,
+            summary_activation=None,
+            summary_proj_to_labels=True,
+            summary_first_dropout=0.1,
+            bos_token_id=50256,
+            eos_token_id=50256,
+            attention_type='causal',
+            n_experts=10,
+            use_switch=True,
+            capacity_factor=1.0,
+            **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
 
@@ -161,6 +162,9 @@ class GPT2Config(PretrainedConfig):
         self.bos_token_id = bos_token_id
         self.eos_token_id = eos_token_id
         self.attention_type = attention_type
+        self.n_experts = n_experts
+        self.use_switch = use_switch
+        self.capacity_factor = capacity_factor
 
     @property
     def max_position_embeddings(self):

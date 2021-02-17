@@ -48,9 +48,9 @@ For further details, qualitative analysis and human evaluation check out: https:
 You can use this model by installing Huggingface library `transformers`. And you can use it directly by initializing it like this:  
 
 ```python
-from transformers import GPT2Tokenizer, GPT2Model
+from transformers import GPT2Tokenizer, GPT2SwitchModel
 
-model = GPT2Model.from_pretrained('LorenzoDeMattei/GePpeTto')
+model = GPT2SwitchModel.from_pretrained('LorenzoDeMattei/GePpeTto')
 tokenizer = GPT2Tokenizer.from_pretrained(
     'LorenzoDeMattei/GePpeTto',
 )

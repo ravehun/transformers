@@ -27,7 +27,7 @@ import torch
 from transformers import (
     CTRLLMHeadModel,
     CTRLTokenizer,
-    GPT2LMHeadModel,
+    GPT2SwitchLMHeadModel,
     GPT2Tokenizer,
     OpenAIGPTLMHeadModel,
     OpenAIGPTTokenizer,
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 MAX_LENGTH = int(10000)  # Hardcoded max length to avoid infinite loop
 
 MODEL_CLASSES = {
-    "gpt2": (GPT2LMHeadModel, GPT2Tokenizer),
+    "gpt2": (GPT2SwitchLMHeadModel, GPT2Tokenizer),
     "ctrl": (CTRLLMHeadModel, CTRLTokenizer),
     "openai-gpt": (OpenAIGPTLMHeadModel, OpenAIGPTTokenizer),
     "xlnet": (XLNetLMHeadModel, XLNetTokenizer),

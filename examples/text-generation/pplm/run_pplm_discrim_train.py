@@ -32,7 +32,7 @@ from torchtext import datasets
 from tqdm import tqdm, trange
 
 from pplm_classification_head import ClassificationHead
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from transformers import GPT2SwitchLMHeadModel, GPT2Tokenizer
 
 
 torch.manual_seed(0)
@@ -48,7 +48,7 @@ class Discriminator(torch.nn.Module):
     def __init__(self, class_size, pretrained_model="gpt2-medium", cached_mode=False, device="cpu"):
         super().__init__()
         self.tokenizer = GPT2Tokenizer.from_pretrained(pretrained_model)
-        self.encoder = GPT2LMHeadModel.from_pretrained(pretrained_model)
+        self.encoder = GPT2SwitchLMHeadModel.from_pretrained(pretrained_model)
         self.embed_size = self.encoder.transformer.config.hidden_size
         self.classifier_head = ClassificationHead(class_size=class_size, embed_size=self.embed_size)
         self.cached_mode = cached_mode

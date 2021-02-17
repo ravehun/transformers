@@ -30,7 +30,7 @@ from .configuration_auto import (
     ElectraConfig,
     EncoderDecoderConfig,
     FlaubertConfig,
-    GPT2Config,
+    GPT2SwitchConfig,
     LongformerConfig,
     MobileBertConfig,
     OpenAIGPTConfig,
@@ -102,7 +102,7 @@ from .modeling_flaubert import (
     FlaubertModel,
     FlaubertWithLMHeadModel,
 )
-from .modeling_gpt2 import GPT2LMHeadModel, GPT2Model
+from .modeling_gpt2_switch import GPT2SwitchLMHeadModel, GPT2SwitchModel
 from .modeling_longformer import (
     LongformerForMaskedLM,
     LongformerForMultipleChoice,
@@ -180,7 +180,7 @@ MODEL_MAPPING = OrderedDict(
         (RobertaConfig, RobertaModel),
         (BertConfig, BertModel),
         (OpenAIGPTConfig, OpenAIGPTModel),
-        (GPT2Config, GPT2Model),
+        (GPT2SwitchConfig, GPT2SwitchModel),
         (MobileBertConfig, MobileBertModel),
         (TransfoXLConfig, TransfoXLModel),
         (XLNetConfig, XLNetModel),
@@ -205,7 +205,7 @@ MODEL_FOR_PRETRAINING_MAPPING = OrderedDict(
         (RobertaConfig, RobertaForMaskedLM),
         (BertConfig, BertForPreTraining),
         (OpenAIGPTConfig, OpenAIGPTLMHeadModel),
-        (GPT2Config, GPT2LMHeadModel),
+        (GPT2SwitchConfig, GPT2SwitchLMHeadModel),
         (MobileBertConfig, MobileBertForPreTraining),
         (TransfoXLConfig, TransfoXLLMHeadModel),
         (XLNetConfig, XLNetLMHeadModel),
@@ -229,7 +229,7 @@ MODEL_WITH_LM_HEAD_MAPPING = OrderedDict(
         (RobertaConfig, RobertaForMaskedLM),
         (BertConfig, BertForMaskedLM),
         (OpenAIGPTConfig, OpenAIGPTLMHeadModel),
-        (GPT2Config, GPT2LMHeadModel),
+        (GPT2SwitchConfig, GPT2SwitchLMHeadModel),
         (MobileBertConfig, MobileBertForMaskedLM),
         (TransfoXLConfig, TransfoXLLMHeadModel),
         (XLNetConfig, XLNetLMHeadModel),
@@ -246,7 +246,7 @@ MODEL_FOR_CAUSAL_LM_MAPPING = OrderedDict(
     [
         (BertConfig, BertLMHeadModel),
         (OpenAIGPTConfig, OpenAIGPTLMHeadModel),
-        (GPT2Config, GPT2LMHeadModel),
+        (GPT2SwitchConfig, GPT2SwitchLMHeadModel),
         (TransfoXLConfig, TransfoXLLMHeadModel),
         (XLNetConfig, XLNetLMHeadModel),
         (

@@ -15,17 +15,17 @@
 # limitations under the License.
 """PyTorch OpenAI GPT-2 model."""
 
-
 import logging
 import os
 import warnings
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import CrossEntropyLoss
 
 from .activations import ACT2FN
-from .configuration_gpt2 import GPT2Config
+from .configuration_gpt2_switch import GPT2SwitchConfig
 from .file_utils import add_code_sample_docstrings, add_start_docstrings, add_start_docstrings_to_callable
 from .modeling_utils import (
     Conv1D,
@@ -33,8 +33,8 @@ from .modeling_utils import (
     SequenceSummary,
     find_pruneable_heads_and_indices,
     prune_conv1d_layer,
+    clone_module_list,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ class Attention(nn.Module):
             w = w / (float(v.size(-1)) ** 0.5)
         nd, ns = w.size(-2), w.size(-1)
         if self.attention_type == "causal":
-            mask = self.bias[:, :, ns - nd : ns, :ns]
+            mask = self.bias[:, :, ns - nd: ns, :ns]
             w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
         elif self.attention_type == "full":
             pass
@@ -187,7 +187,7 @@ class Attention(nn.Module):
             return x.permute(0, 2, 1, 3)  # (batch, head, seq_length, head_features)
 
     def forward(
-        self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False
+            self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False
     ):
         x = self.c_attn(x)
         query, key, value = x.split(self.split_size, dim=2)
@@ -230,6 +230,169 @@ class MLP(nn.Module):
         return self.dropout(h2)
 
 
+class MoE(nn.Module):
+    def __init__(self, n_state, n_expert, config):
+        super().__init__()
+        self.n_state = n_state
+        self.n_expert = n_expert
+        self.dropout = nn.Dropout(config.resid_pdrop)
+        nx = config.n_embd
+        self.router = Conv1D(n_expert, nx)
+        self.act = ACT2FN[config.activation_function]
+        h_state = 4 * n_state
+        self.weight1 = nn.Parameter(torch.zeros(n_expert, n_state, h_state))
+        self.bias1 = nn.Parameter(torch.zeros(n_expert, h_state))
+
+        self.weight2 = nn.Parameter(torch.zeros(n_expert, h_state, n_state))
+        self.bias2 = nn.Parameter(torch.zeros(n_expert, n_state))
+
+        self.capacity_factor = config.capacity_factor
+
+    def forward(self, x):
+        route_prob: torch.Tensor = self.router(x).softmax(-1)
+        route_prob_sum = route_prob.view([-1, self.n_expert]).sum(0)
+        experts_id: torch.Tensor = route_prob.argmax(-1)
+
+        reached_experts, incomplete_counts = experts_id.unique(return_counts=True)
+        expert_counts = torch.zeros(self.n_expert)
+        for re, ic in zip(reached_experts, incomplete_counts):
+            expert_counts[re] += ic
+
+        capacity = self.capacity_factor / self.n_expert * np.prod(x.shape)
+        drop_ratio = capacity / expert_counts
+        drop_ratio = drop_ratio[experts_id]
+        mask = torch.rand(*experts_id.shape) < drop_ratio
+
+        dropped = (expert_counts - capacity).abs()
+
+        x = torch.einsum('...d,...dh->...h', x, self.weight1[experts_id]) + self.bias1[experts_id]
+        x = self.act(x)
+        x = torch.einsum('...d,...dh->...h', x, self.weight2[experts_id]) + self.bias2[experts_id]
+        x = x * mask.unsqueeze(-1)
+        x = self.act(x)
+        x = self.dropout(x)
+        # print(f'expert_counts {expert_counts.shape} route_prob_sum {route_prob_sum.shape} dropped {dropped.shape}')
+        return x, expert_counts, route_prob_sum, dropped
+
+
+class SwitchFeedForward(nn.Module):
+    """
+    ## Routing among multiple FFNs
+    """
+
+    def __init__(self, *,
+                 capacity_factor: float,
+                 drop_tokens: bool,
+                 is_scale_prob: bool,
+                 n_experts: int,
+                 expert: MLP,
+                 d_model: int):
+        """
+        * `capacity_factor` is the capacity of each expert as a factor relative to ideally balanced load
+        * `drop_tokens` specifies whether to drop tokens if more tokens are routed to an expert than the capacity
+        * `is_scale_prob` specifies whether to multiply the input to the FFN by the routing probability
+        * `n_experts` is the number of experts
+        * `expert` is the expert layer, a [FFN module](../feed_forward.html)
+        * `d_model` is the number of features in a token embedding
+        * `d_ff` is the number of features in the hidden layer of the FFN
+        * `dropout` is dropout probability in the FFN
+        """
+        super().__init__()
+
+        self.capacity_factor = capacity_factor
+        self.is_scale_prob = is_scale_prob
+        self.n_experts = n_experts
+        self.drop_tokens = drop_tokens
+
+        # make copies of the FFNs
+        self.experts = clone_module_list(expert, n_experts)
+        # Routing layer and softmax
+        self.switch = nn.Linear(d_model, n_experts)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x: torch.Tensor):
+        """
+        * `x` is the input to the switching module with shape `[seq_len, batch_size, d_model]`
+        """
+
+        # Capture the shape to change shapes later
+        seq_len, batch_size, d_model = x.shape
+        # Flatten the sequence and batch dimensions
+        x = x.view(-1, d_model)
+
+        # Get routing probabilities for each of the tokens.
+        # $$p_i(x) = \frac{e^{h(x)_i}}{\sum^N_j e^{h(x)_j}}$$
+        # where $N$ is the number of experts `n_experts` and
+        # $h(\cdot)$ is the linear transformation of token embeddings.
+        route_prob = self.softmax(self.switch(x))
+
+        # Get the maximum routing probabilities and the routes.
+        # We route to the expert with highest probability
+        route_prob_max, routes = torch.max(route_prob, dim=-1)
+
+        # Scale the inputs to the experts by the routing probabilities
+        if self.is_scale_prob:
+            factor = route_prob_max
+        # Don't scale the values but multiply by $\frac{p}{\hat{p}} = 1$ so that the gradients flow
+        else:
+            factor = route_prob_max / route_prob_max.detach()
+        # Multiply by the scaling factor
+        x = x * factor.view(-1, 1)
+
+        # Get indexes of tokens going to each expert
+        indexes_list = [torch.eq(routes, i).nonzero(as_tuple=True)[0] for i in range(self.n_experts)]
+
+        # Initialize an empty tensor to store outputs
+        final_output = x.new_zeros(x.shape)
+
+        # Capacity of each expert.
+        # $$\mathrm{expert\;capacity} =
+        # \frac{\mathrm{tokens\;per\;batch}}{\mathrm{number\;of\;experts}}
+        # \times \mathrm{capacity\;factor}$$
+        capacity = int(self.capacity_factor * len(x) / self.n_experts)
+        # Number of tokens routed to each expert.
+        counts = x.new_tensor([len(indexes_list[i]) for i in range(self.n_experts)])
+
+        # Initialize an empty list of dropped tokens
+        dropped = []
+        # Only drop tokens if `drop_tokens` is `True`.
+        if self.drop_tokens:
+            # Drop tokens in each of the experts
+            for i in range(self.n_experts):
+                # Ignore if the expert is not over capacity
+                if len(indexes_list[i]) <= capacity:
+                    continue
+                # Shuffle indexes before dropping
+                indexes_list[i] = indexes_list[i][torch.randperm(len(indexes_list[i]))]
+                # Collect the tokens over capacity as dropped tokens
+                dropped.append(indexes_list[i][capacity:])
+                # Keep only the tokens upto the capacity of the expert
+                indexes_list[i] = indexes_list[i][:capacity]
+
+        # Get outputs of the expert FFNs
+        route_outputs = [self.experts[i](x[indexes_list[i], :]) for i in range(self.n_experts)]
+
+        # Assign to final output
+        for i in range(self.n_experts):
+            final_output[indexes_list[i], :] = route_outputs[i]
+
+        # Pass through the dropped tokens
+        if dropped:
+            dropped = torch.cat(dropped)
+            final_output[dropped, :] = x[dropped, :]
+
+        # Change the shape of the final output back to `[seq_len, batch_size, d_model]`
+        final_output = final_output.view(seq_len, batch_size, d_model)
+
+        # Return
+        # * the final output
+        # * number of tokens routed to each expert
+        # * sum of probabilities for each expert
+        # * number of tokens dropped.
+        # These are used for the load balancing loss and logging
+        return final_output, counts, route_prob.sum(0), len(dropped)
+
+
 class Block(nn.Module):
     def __init__(self, n_ctx, config, scale=False):
         super().__init__()
@@ -237,10 +400,20 @@ class Block(nn.Module):
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
+        if config.use_switch:
+            self.feature_mapping = MoE(nx, config.n_experts, config)
+        else:
+            self.feature_mapping = SwitchFeedForward(
+                capacity_factor=config.capacity_factor,
+                drop_tokens=True,
+                is_scale_prob=True,
+                n_experts=config.n_experts,
+                expert=MLP(4 * nx, config),
+                d_model=nx,
+            )
 
     def forward(
-        self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
+            self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
     ):
         output_attn = self.attn(
             self.ln_1(x),
@@ -253,19 +426,19 @@ class Block(nn.Module):
         a = output_attn[0]  # output_attn: a, present, (attentions)
 
         x = x + a
-        m = self.mlp(self.ln_2(x))
+        m, counts, route_prob, n_dropped = self.feature_mapping(self.ln_2(x))
         x = x + m
 
-        outputs = [x] + output_attn[1:]
+        outputs = [x] + output_attn[1:] + [counts, route_prob, n_dropped]
         return outputs  # x, present, (attentions)
 
 
-class GPT2PreTrainedModel(PreTrainedModel):
+class GPT2SwitchPreTrainedModel(PreTrainedModel):
     """ An abstract class to handle weights initialization and
         a simple interface for downloading and loading pretrained models.
     """
 
-    config_class = GPT2Config
+    config_class = GPT2SwitchConfig
     load_tf_weights = load_tf_weights_in_gpt2
     base_model_prefix = "transformer"
 
@@ -275,6 +448,7 @@ class GPT2PreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """ Initialize the weights.
         """
+        classname = module.__class__.__name__
         if isinstance(module, (nn.Linear, nn.Embedding, Conv1D)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
@@ -284,6 +458,11 @@ class GPT2PreTrainedModel(PreTrainedModel):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
+        elif classname.find("MoE") != -1:
+            module.weight1.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight2.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.bias1.data.zero_()
+            module.bias2.data.zero_()
 
 
 GPT2_START_DOCSTRING = r"""
@@ -352,7 +531,7 @@ GPT2_INPUTS_DOCSTRING = r"""
     "The bare GPT2 Model transformer outputting raw hidden-states without any specific head on top.",
     GPT2_START_DOCSTRING,
 )
-class GPT2Model(GPT2PreTrainedModel):
+class GPT2SwitchModel(GPT2SwitchPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
 
@@ -380,17 +559,17 @@ class GPT2Model(GPT2PreTrainedModel):
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(tokenizer_class=_TOKENIZER_FOR_DOC, checkpoint="gpt2")
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
     ):
         r"""
     Return:
@@ -486,6 +665,9 @@ class GPT2Model(GPT2PreTrainedModel):
         presents = ()
         all_attentions = []
         all_hidden_states = ()
+        all_counts = []
+        all_route_prob = []
+        all_n_dropped = []
         for i, (block, layer_past) in enumerate(zip(self.h, past)):
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states.view(*output_shape),)
@@ -500,6 +682,11 @@ class GPT2Model(GPT2PreTrainedModel):
             )
 
             hidden_states, present = outputs[:2]
+            counts, route_prob, n_dropped = outputs[-3:]
+            all_counts.append(counts)
+            all_route_prob.append(route_prob)
+            all_n_dropped.append(n_dropped)
+
             if use_cache is True:
                 presents = presents + (present,)
 
@@ -523,6 +710,8 @@ class GPT2Model(GPT2PreTrainedModel):
             attention_output_shape = input_shape[:-1] + (-1,) + all_attentions[0].shape[-2:]
             all_attentions = tuple(t.view(*attention_output_shape) for t in all_attentions)
             outputs = outputs + (all_attentions,)
+
+        outputs = outputs + (torch.stack(all_counts), torch.stack(all_route_prob), all_n_dropped,)
         return outputs  # last hidden state, (presents), (all hidden_states), (attentions)
 
 
@@ -531,10 +720,10 @@ class GPT2Model(GPT2PreTrainedModel):
     (linear layer with weights tied to the input embeddings). """,
     GPT2_START_DOCSTRING,
 )
-class GPT2LMHeadModel(GPT2PreTrainedModel):
+class GPT2SwitchLMHeadModel(GPT2SwitchPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-        self.transformer = GPT2Model(config)
+        self.transformer = GPT2SwitchModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         self.init_weights()
@@ -552,18 +741,18 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(tokenizer_class=_TOKENIZER_FOR_DOC, checkpoint="gpt2")
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
     ):
         r"""
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
@@ -631,11 +820,11 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
 """,
     GPT2_START_DOCSTRING,
 )
-class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
+class GPT2SwitchDoubleHeadsModel(GPT2SwitchPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         config.num_labels = 1
-        self.transformer = GPT2Model(config)
+        self.transformer = GPT2SwitchModel(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.multiple_choice_head = SequenceSummary(config)
 
@@ -646,21 +835,21 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
 
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        mc_token_ids=None,
-        labels=None,
-        mc_labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        **kwargs
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            mc_token_ids=None,
+            labels=None,
+            mc_labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            **kwargs
     ):
         r"""
         mc_token_ids (:obj:`torch.LongTensor` of shape :obj:`(batch_size, num_choices)`, `optional`, default to index of the last token of the input)
@@ -707,10 +896,10 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
     Examples::
 
         >>> import torch
-        >>> from transformers import GPT2Tokenizer, GPT2DoubleHeadsModel
+        >>> from transformers import GPT2Tokenizer, GPT2SwitchDoubleHeadsModel
 
         >>> tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-        >>> model = GPT2DoubleHeadsModel.from_pretrained('gpt2')
+        >>> model = GPT2SwitchDoubleHeadsModel.from_pretrained('gpt2')
 
         >>> # Add a [CLS] to the vocabulary (we should train it also!)
         >>> num_added_tokens = tokenizer.add_special_tokens({'cls_token': '[CLS]'})

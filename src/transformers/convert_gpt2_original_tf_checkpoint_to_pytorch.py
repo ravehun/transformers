@@ -20,7 +20,7 @@ import logging
 
 import torch
 
-from transformers import CONFIG_NAME, WEIGHTS_NAME, GPT2Config, GPT2Model, load_tf_weights_in_gpt2
+from transformers import CONFIG_NAME, WEIGHTS_NAME, GPT2SwitchConfig, GPT2SwitchModel, load_tf_weights_in_gpt2
 
 
 logging.basicConfig(level=logging.INFO)
@@ -29,10 +29,10 @@ logging.basicConfig(level=logging.INFO)
 def convert_gpt2_checkpoint_to_pytorch(gpt2_checkpoint_path, gpt2_config_file, pytorch_dump_folder_path):
     # Construct model
     if gpt2_config_file == "":
-        config = GPT2Config()
+        config = GPT2SwitchConfig()
     else:
-        config = GPT2Config.from_json_file(gpt2_config_file)
-    model = GPT2Model(config)
+        config = GPT2SwitchConfig.from_json_file(gpt2_config_file)
+    model = GPT2SwitchModel(config)
 
     # Load weights from numpy
     load_tf_weights_in_gpt2(model, config, gpt2_checkpoint_path)

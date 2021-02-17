@@ -20,7 +20,7 @@ import argparse
 
 import torch
 
-from transformers import GPT2LMHeadModel, RobertaForMaskedLM
+from transformers import GPT2SwitchLMHeadModel, RobertaForMaskedLM
 
 
 if __name__ == "__main__":
@@ -37,7 +37,7 @@ if __name__ == "__main__":
         model = RobertaForMaskedLM.from_pretrained(args.model_name)
         prefix = "roberta"
     elif args.model_type == "gpt2":
-        model = GPT2LMHeadModel.from_pretrained(args.model_name)
+        model = GPT2SwitchLMHeadModel.from_pretrained(args.model_name)
         prefix = "transformer"
 
     state_dict = model.state_dict()

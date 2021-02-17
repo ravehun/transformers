@@ -24,14 +24,14 @@ if is_torch_available():
     from transformers import (
         AutoConfig,
         BertConfig,
-        GPT2Config,
+        GPT2SwitchConfig,
         T5Config,
         AutoModel,
         BertModel,
         AutoModelForPreTraining,
         BertForPreTraining,
         AutoModelForCausalLM,
-        GPT2LMHeadModel,
+        GPT2SwitchLMHeadModel,
         AutoModelWithLMHead,
         AutoModelForMaskedLM,
         BertForMaskedLM,
@@ -46,7 +46,7 @@ if is_torch_available():
         BertForTokenClassification,
     )
     from transformers.modeling_bert import BERT_PRETRAINED_MODEL_ARCHIVE_LIST
-    from transformers.modeling_gpt2 import GPT2_PRETRAINED_MODEL_ARCHIVE_LIST
+    from transformers.modeling_gpt2_switch import GPT2_PRETRAINED_MODEL_ARCHIVE_LIST
     from transformers.modeling_t5 import T5_PRETRAINED_MODEL_ARCHIVE_LIST
     from transformers.modeling_auto import (
         MODEL_MAPPING,
@@ -109,12 +109,12 @@ class AutoModelTest(unittest.TestCase):
         for model_name in GPT2_PRETRAINED_MODEL_ARCHIVE_LIST[:1]:
             config = AutoConfig.from_pretrained(model_name)
             self.assertIsNotNone(config)
-            self.assertIsInstance(config, GPT2Config)
+            self.assertIsInstance(config, GPT2SwitchConfig)
 
             model = AutoModelForCausalLM.from_pretrained(model_name)
             model, loading_info = AutoModelForCausalLM.from_pretrained(model_name, output_loading_info=True)
             self.assertIsNotNone(model)
-            self.assertIsInstance(model, GPT2LMHeadModel)
+            self.assertIsInstance(model, GPT2SwitchLMHeadModel)
 
     @slow
     def test_model_for_masked_lm(self):

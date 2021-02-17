@@ -13,10 +13,10 @@ Evaluation on [brown-uk](https://github.com/brown-uk/corpus) gives perplexity of
 
 ### Example usage:
 ```python
-from transformers import AlbertTokenizer, GPT2LMHeadModel
+from transformers import AlbertTokenizer, GPT2SwitchLMHeadModel
 
 tokenizer = AlbertTokenizer.from_pretrained("Tereveni-AI/gpt2-124M-uk-fiction")
-model = GPT2LMHeadModel.from_pretrained("Tereveni-AI/gpt2-124M-uk-fiction")
+model = GPT2SwitchLMHeadModel.from_pretrained("Tereveni-AI/gpt2-124M-uk-fiction")
 
 input_ids = tokenizer.encode("Но зла Юнона, суча дочка,", add_special_tokens=False, return_tensors='pt')
 
