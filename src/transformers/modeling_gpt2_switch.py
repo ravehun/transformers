@@ -255,8 +255,9 @@ class MoE(nn.Module):
 
         reached_experts, incomplete_counts = experts_id.unique(return_counts=True)
         expert_counts:torch.Tensor = reached_experts.new_zeros(self.n_expert)
-        for re, ic in zip(reached_experts, incomplete_counts):
-            expert_counts[re] += ic
+        # for re, ic in zip(reached_experts, incomplete_counts):
+        #     expert_counts[re] += ic
+        expert_counts[reached_experts] += incomplete_counts
         num_tokens = np.prod(x.shape[:-1])
         capacity = round(self.capacity_factor / self.n_expert * num_tokens)
         drop_ratio = capacity / expert_counts.type_as(route_prob)

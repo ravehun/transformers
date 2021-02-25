@@ -16,6 +16,7 @@
 import copy
 import inspect
 import logging
+import math
 import os
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -37,9 +38,7 @@ from .file_utils import (
 )
 from .generation_utils import GenerationMixin
 
-
 logger = logging.getLogger(__name__)
-
 
 try:
     from torch.nn import Identity
@@ -57,7 +56,7 @@ except ImportError:
 
 
 def find_pruneable_heads_and_indices(
-    heads: List, n_heads: int, head_size: int, already_pruned_heads: set
+        heads: List, n_heads: int, head_size: int, already_pruned_heads: set
 ) -> Tuple[set, "torch.LongTensor"]:
     mask = torch.ones(n_heads, head_size)
     heads = set(heads) - already_pruned_heads  # Convert to set and remove already pruned heads
@@ -414,7 +413,7 @@ class PreTrainedModel(nn.Module, ModuleUtilsMixin, GenerationMixin):
         return self.get_input_embeddings()
 
     def _get_resized_embeddings(
-        self, old_embeddings: torch.nn.Embedding, new_num_tokens: Optional[int] = None
+            self, old_embeddings: torch.nn.Embedding, new_num_tokens: Optional[int] = None
     ) -> torch.nn.Embedding:
         """ Build a resized Embedding Module from a provided token Embedding Module.
             Increasing the size will add newly initialized vectors at the end
@@ -818,7 +817,7 @@ class Conv1D(nn.Module):
         super().__init__()
         self.nf = nf
         w = torch.empty(nx, nf)
-        nn.init.normal_(w, std=0.02)
+        nn.init.normal_(w, std=1 / math.sqrt(nx))
         self.weight = nn.Parameter(w)
         self.bias = nn.Parameter(torch.zeros(nf))
 
@@ -878,7 +877,7 @@ class PoolerEndLogits(nn.Module):
                 1.0 means token should be masked.
         """
         assert (
-            start_states is not None or start_positions is not None
+                start_states is not None or start_positions is not None
         ), "One of start_states, start_positions should be not None"
         if start_positions is not None:
             slen, hsz = hidden_states.shape[-2:]
@@ -928,7 +927,7 @@ class PoolerAnswerClass(nn.Module):
         """
         hsz = hidden_states.shape[-1]
         assert (
-            start_states is not None or start_positions is not None
+                start_states is not None or start_positions is not None
         ), "One of start_states, start_positions should be not None"
         if start_positions is not None:
             start_positions = start_positions[:, None, None].expand(-1, -1, hsz)  # shape (bsz, 1, hsz)
@@ -998,7 +997,8 @@ class SQuADHead(nn.Module):
         self.answer_class = PoolerAnswerClass(config)
 
     def forward(
-        self, hidden_states, start_positions=None, end_positions=None, cls_index=None, is_impossible=None, p_mask=None,
+            self, hidden_states, start_positions=None, end_positions=None, cls_index=None, is_impossible=None,
+            p_mask=None,
     ):
         outputs = ()
 
@@ -1124,7 +1124,7 @@ class SequenceSummary(nn.Module):
             output = hidden_states.mean(dim=1)
         elif self.summary_type == "cls_index":
             if cls_index is None:
-                cls_index = torch.full_like(hidden_states[..., :1, :], hidden_states.shape[-2] - 1, dtype=torch.long,)
+                cls_index = torch.full_like(hidden_states[..., :1, :], hidden_states.shape[-2] - 1, dtype=torch.long, )
             else:
                 cls_index = cls_index.unsqueeze(-1).unsqueeze(-1)
                 cls_index = cls_index.expand((-1,) * (cls_index.dim() - 1) + (hidden_states.size(-1),))
@@ -1204,7 +1204,7 @@ def prune_layer(layer, index, dim=None):
 
 
 def apply_chunking_to_forward(
-    chunk_size: int, chunk_dim: int, forward_fn: Callable[..., torch.Tensor], *input_tensors
+        chunk_size: int, chunk_dim: int, forward_fn: Callable[..., torch.Tensor], *input_tensors
 ) -> torch.Tensor:
     """
     This function chunks the `input_tensors` into smaller input tensor parts of size `chunk_size` over the dimension `chunk_dim`.
@@ -1249,7 +1249,7 @@ def apply_chunking_to_forward(
 
     if chunk_size > 0:
         assert (
-            input_tensors[0].shape[chunk_dim] % chunk_size == 0
+                input_tensors[0].shape[chunk_dim] % chunk_size == 0
         ), "The dimension to be chunked {} has to be a multiple of the chunk size {}".format(
             input_tensors[0].shape[chunk_dim], chunk_size
         )

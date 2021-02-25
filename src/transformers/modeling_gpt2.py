@@ -15,8 +15,8 @@
 # limitations under the License.
 """PyTorch OpenAI GPT-2 model."""
 
-
 import logging
+import math
 import os
 import warnings
 
@@ -34,7 +34,6 @@ from .modeling_utils import (
     find_pruneable_heads_and_indices,
     prune_conv1d_layer,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +149,7 @@ class Attention(nn.Module):
             w = w / (float(v.size(-1)) ** 0.5)
         nd, ns = w.size(-2), w.size(-1)
         if self.attention_type == "causal":
-            mask = self.bias[:, :, ns - nd : ns, :ns]
+            mask = self.bias[:, :, ns - nd: ns, :ns]
             w = torch.where(mask.bool(), w, self.masked_bias.to(w.dtype))
         elif self.attention_type == "full":
             pass
@@ -187,7 +186,7 @@ class Attention(nn.Module):
             return x.permute(0, 2, 1, 3)  # (batch, head, seq_length, head_features)
 
     def forward(
-        self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False
+            self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False
     ):
         x = self.c_attn(x)
         query, key, value = x.split(self.split_size, dim=2)
@@ -240,7 +239,7 @@ class Block(nn.Module):
         self.mlp = MLP(4 * nx, config)
 
     def forward(
-        self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
+            self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
     ):
         output_attn = self.attn(
             self.ln_1(x),
@@ -275,10 +274,10 @@ class GPT2PreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """ Initialize the weights.
         """
-        if isinstance(module, (nn.Linear, nn.Embedding, Conv1D)):
+        if isinstance(module, (nn.Embedding)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=1 / math.sqrt(module.weight.shape[1]))
             if isinstance(module, (nn.Linear, Conv1D)) and module.bias is not None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.LayerNorm):
@@ -380,17 +379,17 @@ class GPT2Model(GPT2PreTrainedModel):
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(tokenizer_class=_TOKENIZER_FOR_DOC, checkpoint="gpt2")
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
     ):
         r"""
     Return:
@@ -552,18 +551,18 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     @add_code_sample_docstrings(tokenizer_class=_TOKENIZER_FOR_DOC, checkpoint="gpt2")
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
     ):
         r"""
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
@@ -646,21 +645,21 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
 
     @add_start_docstrings_to_callable(GPT2_INPUTS_DOCSTRING)
     def forward(
-        self,
-        input_ids=None,
-        past=None,
-        attention_mask=None,
-        token_type_ids=None,
-        position_ids=None,
-        head_mask=None,
-        inputs_embeds=None,
-        mc_token_ids=None,
-        labels=None,
-        mc_labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        **kwargs
+            self,
+            input_ids=None,
+            past=None,
+            attention_mask=None,
+            token_type_ids=None,
+            position_ids=None,
+            head_mask=None,
+            inputs_embeds=None,
+            mc_token_ids=None,
+            labels=None,
+            mc_labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            **kwargs
     ):
         r"""
         mc_token_ids (:obj:`torch.LongTensor` of shape :obj:`(batch_size, num_choices)`, `optional`, default to index of the last token of the input)
