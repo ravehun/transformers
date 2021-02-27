@@ -16,6 +16,7 @@
 """PyTorch OpenAI GPT-2 model."""
 
 import logging
+8 import math
 import os
 import warnings
 
@@ -252,11 +253,13 @@ class MoE(nn.Module):
         route_prob: torch.Tensor = self.router(x).softmax(-1)
         route_prob_sum = route_prob.view([-1, self.n_expert]).sum(0)
         experts_id: torch.Tensor = route_prob.argmax(-1)
-
+        # unique experts , counts should be reached to specific experts.
         reached_experts, incomplete_counts = experts_id.unique(return_counts=True)
-        expert_counts:torch.Tensor = reached_experts.new_zeros(self.n_expert)
+        expert_counts: torch.Tensor = reached_experts.new_zeros(self.n_expert)
         # for re, ic in zip(reached_experts, incomplete_counts):
         #     expert_counts[re] += ic
+
+        # reranked expert counts
         expert_counts[reached_experts] += incomplete_counts
         num_tokens = np.prod(x.shape[:-1])
         capacity = round(self.capacity_factor / self.n_expert * num_tokens)
@@ -355,7 +358,7 @@ class SwitchFeedForward(nn.Module):
         counts = x.new_tensor([len(indexes_list[i]) for i in range(self.n_experts)])
 
         # Initialize an empty list of dropped tokens
-        dropped = []
+        dropped = x.new_zeros(self.n_experts)
         # Only drop tokens if `drop_tokens` is `True`.
         if self.drop_tokens:
             # Drop tokens in each of the experts
@@ -366,7 +369,9 @@ class SwitchFeedForward(nn.Module):
                 # Shuffle indexes before dropping
                 indexes_list[i] = indexes_list[i][torch.randperm(len(indexes_list[i]))]
                 # Collect the tokens over capacity as dropped tokens
-                dropped.append(indexes_list[i][capacity:])
+                # dropped.append(indexes_list[i][capacity:].shape[0])
+                dropped[i] = max(indexes_list[i].shape[0] - capacity, 0)
+
                 # Keep only the tokens upto the capacity of the expert
                 indexes_list[i] = indexes_list[i][:capacity]
 
@@ -378,9 +383,9 @@ class SwitchFeedForward(nn.Module):
             final_output[indexes_list[i], :] = route_outputs[i]
 
         # Pass through the dropped tokens
-        if dropped:
-            dropped = torch.cat(dropped)
-            final_output[dropped, :] = x[dropped, :]
+        # if dropped:
+        # dropped = torch.cat(dropped)
+        # final_output[dropped, :] = x[dropped, :]
 
         # Change the shape of the final output back to `[seq_len, batch_size, d_model]`
         final_output = final_output.view(seq_len, batch_size, d_model)
@@ -391,7 +396,7 @@ class SwitchFeedForward(nn.Module):
         # * sum of probabilities for each expert
         # * number of tokens dropped.
         # These are used for the load balancing loss and logging
-        return final_output, counts, route_prob.sum(0), len(dropped)
+        return final_output, counts, route_prob.sum(0), dropped
 
 
 class Block(nn.Module):
@@ -401,17 +406,17 @@ class Block(nn.Module):
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        if config.use_switch:
-            self.feature_mapping = MoE(nx, config.n_experts, config)
-        else:
-            self.feature_mapping = SwitchFeedForward(
-                capacity_factor=config.capacity_factor,
-                drop_tokens=True,
-                is_scale_prob=True,
-                n_experts=config.n_experts,
-                expert=MLP(4 * nx, config),
-                d_model=nx,
-            )
+        # if config.use_switch:
+        #     self.feature_mapping = MoE(nx, config.n_experts, config)
+        # else:
+        self.feature_mapping = SwitchFeedForward(
+            capacity_factor=config.capacity_factor,
+            drop_tokens=True,
+            is_scale_prob=config.is_scale_prob,
+            n_experts=config.n_experts,
+            expert=MLP(4 * nx, config),
+            d_model=nx,
+        )
 
     def forward(
             self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False,
@@ -449,11 +454,10 @@ class GPT2SwitchPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """ Initialize the weights.
         """
-        classname = module.__class__.__name__
-        if isinstance(module, (nn.Linear, nn.Embedding, Conv1D)):
+        if isinstance(module, (nn.Embedding,Conv1D)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            module.weight.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight.shape[1]))
             if isinstance(module, (nn.Linear, Conv1D)) and module.bias is not None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.LayerNorm):
@@ -464,7 +468,6 @@ class GPT2SwitchPreTrainedModel(PreTrainedModel):
             module.weight2.data.normal_(mean=0.0, std=self.config.initializer_range)
             module.bias1.data.zero_()
             module.bias2.data.zero_()
-
 
 GPT2_START_DOCSTRING = r"""
 

@@ -274,10 +274,10 @@ class GPT2PreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """ Initialize the weights.
         """
-        if isinstance(module, (nn.Embedding)):
+        if isinstance(module, (nn.Embedding, Conv1D)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
-            module.weight.data.normal_(mean=0.0, std=1 / math.sqrt(module.weight.shape[1]))
+            module.weight.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight.shape[1]))
             if isinstance(module, (nn.Linear, Conv1D)) and module.bias is not None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.LayerNorm):
