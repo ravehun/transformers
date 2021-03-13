@@ -16,7 +16,7 @@
 """PyTorch OpenAI GPT-2 model."""
 
 import logging
-8 import math
+import math
 import os
 import warnings
 
@@ -290,7 +290,8 @@ class SwitchFeedForward(nn.Module):
                  is_scale_prob: bool,
                  n_experts: int,
                  expert: MLP,
-                 d_model: int):
+                 d_model: int,
+                 expert_dropout: float, ):
         """
         * `capacity_factor` is the capacity of each expert as a factor relative to ideally balanced load
         * `drop_tokens` specifies whether to drop tokens if more tokens are routed to an expert than the capacity
@@ -307,12 +308,20 @@ class SwitchFeedForward(nn.Module):
         self.is_scale_prob = is_scale_prob
         self.n_experts = n_experts
         self.drop_tokens = drop_tokens
-
+        self.expert_dropout = expert_dropout
         # make copies of the FFNs
         self.experts = clone_module_list(expert, n_experts)
         # Routing layer and softmax
         self.switch = nn.Linear(d_model, n_experts)
         self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(expert_dropout)
+        self.act = ACT2FN['gelu_new']
+        h_state = 4 * d_model
+        self.weight1 = nn.Parameter(torch.zeros(n_experts, d_model, h_state))
+        self.bias1 = nn.Parameter(torch.zeros(n_experts, 1, h_state))
+
+        self.weight2 = nn.Parameter(torch.zeros(n_experts, h_state, d_model))
+        self.bias2 = nn.Parameter(torch.zeros(n_experts, 1, d_model))
 
     def forward(self, x: torch.Tensor):
         """
@@ -342,12 +351,14 @@ class SwitchFeedForward(nn.Module):
             factor = route_prob_max / route_prob_max.detach()
         # Multiply by the scaling factor
         x = x * factor.view(-1, 1)
+        # extand x with virtual
 
+        ex = torch.cat([x, x.new_zeros(1, x.shape[-1])])
         # Get indexes of tokens going to each expert
         indexes_list = [torch.eq(routes, i).nonzero(as_tuple=True)[0] for i in range(self.n_experts)]
 
         # Initialize an empty tensor to store outputs
-        final_output = x.new_zeros(x.shape)
+        final_output = x.new_zeros(ex.shape)
 
         # Capacity of each expert.
         # $$\mathrm{expert\;capacity} =
@@ -357,6 +368,8 @@ class SwitchFeedForward(nn.Module):
         # Number of tokens routed to each expert.
         counts = x.new_tensor([len(indexes_list[i]) for i in range(self.n_experts)])
 
+        actual_indexes = x.new_ones([self.n_experts, capacity], dtype=torch.long) * x.shape[0]
+
         # Initialize an empty list of dropped tokens
         dropped = x.new_zeros(self.n_experts)
         # Only drop tokens if `drop_tokens` is `True`.
@@ -364,23 +377,31 @@ class SwitchFeedForward(nn.Module):
             # Drop tokens in each of the experts
             for i in range(self.n_experts):
                 # Ignore if the expert is not over capacity
-                if len(indexes_list[i]) <= capacity:
-                    continue
-                # Shuffle indexes before dropping
-                indexes_list[i] = indexes_list[i][torch.randperm(len(indexes_list[i]))]
-                # Collect the tokens over capacity as dropped tokens
-                # dropped.append(indexes_list[i][capacity:].shape[0])
-                dropped[i] = max(indexes_list[i].shape[0] - capacity, 0)
+                if len(indexes_list[i]) > capacity:
+                    # Shuffle indexes before dropping
+                    indexes_list[i] = indexes_list[i][torch.randperm(len(indexes_list[i]))]
+                    # Collect the tokens over capacity as dropped tokens
+                    # dropped.append(indexes_list[i][capacity:].shape[0])
+                    dropped[i] = max(indexes_list[i].shape[0] - capacity, 0)
 
                 # Keep only the tokens upto the capacity of the expert
-                indexes_list[i] = indexes_list[i][:capacity]
+                actual_indexes[i, :indexes_list[i].shape[0]] = indexes_list[i][:capacity]
+
+        x = torch.einsum('ecd,edh->ech', ex[actual_indexes, :], self.weight1) + self.bias1
+        x = self.act(x)
+        x = torch.einsum('ecd,edh->ech', x, self.weight2) + self.bias2
+        # x = self.act(x)
+        x = self.dropout(x)
 
         # Get outputs of the expert FFNs
-        route_outputs = [self.experts[i](x[indexes_list[i], :]) for i in range(self.n_experts)]
+        # route_outputs = [self.experts[i](x[indexes_list[i], :]) for i in range(self.n_experts)]
+        # route_outputs = [self.experts[i](x[indexes_list[i], :]) for i in range(self.n_experts)]
+
+        final_output[actual_indexes, :] = x
 
         # Assign to final output
-        for i in range(self.n_experts):
-            final_output[indexes_list[i], :] = route_outputs[i]
+        # for i in range(self.n_experts):
+        #     final_output[indexes_list[i], :] = route_outputs[i]
 
         # Pass through the dropped tokens
         # if dropped:
@@ -388,7 +409,7 @@ class SwitchFeedForward(nn.Module):
         # final_output[dropped, :] = x[dropped, :]
 
         # Change the shape of the final output back to `[seq_len, batch_size, d_model]`
-        final_output = final_output.view(seq_len, batch_size, d_model)
+        final_output = final_output[:-1].view(seq_len, batch_size, d_model)
 
         # Return
         # * the final output
@@ -416,6 +437,7 @@ class Block(nn.Module):
             n_experts=config.n_experts,
             expert=MLP(4 * nx, config),
             d_model=nx,
+            expert_dropout=config.expert_dropout
         )
 
     def forward(
@@ -454,7 +476,7 @@ class GPT2SwitchPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """ Initialize the weights.
         """
-        if isinstance(module, (nn.Embedding,Conv1D)):
+        if isinstance(module, (nn.Embedding, Conv1D)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
             module.weight.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight.shape[1]))
@@ -463,11 +485,12 @@ class GPT2SwitchPreTrainedModel(PreTrainedModel):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
-        elif classname.find("MoE") != -1:
-            module.weight1.data.normal_(mean=0.0, std=self.config.initializer_range)
-            module.weight2.data.normal_(mean=0.0, std=self.config.initializer_range)
+        elif isinstance(module, SwitchFeedForward):
+            module.weight1.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight1.shape[1]))
+            module.weight2.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight2.shape[1]))
             module.bias1.data.zero_()
             module.bias2.data.zero_()
+
 
 GPT2_START_DOCSTRING = r"""
 

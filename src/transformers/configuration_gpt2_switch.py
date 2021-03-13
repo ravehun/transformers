@@ -138,6 +138,7 @@ class GPT2SwitchConfig(PretrainedConfig):
             use_switch=True,
             capacity_factor=1.0,
             is_scale_prob=True,
+            expert_dropout=0.4,
             **kwargs
     ):
         super().__init__(bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
@@ -167,6 +168,7 @@ class GPT2SwitchConfig(PretrainedConfig):
         self.use_switch = use_switch
         self.capacity_factor = capacity_factor
         self.is_scale_prob = is_scale_prob
+        self.expert_dropout = expert_dropout
 
     @property
     def max_position_embeddings(self):
