@@ -138,6 +138,7 @@ class GPT2SwitchConfig(PretrainedConfig):
             use_switch=True,
             capacity_factor=1.0,
             is_scale_prob=True,
+            ffn_dim_scale=2,
             expert_dropout=0.4,
             **kwargs
     ):
@@ -169,6 +170,7 @@ class GPT2SwitchConfig(PretrainedConfig):
         self.capacity_factor = capacity_factor
         self.is_scale_prob = is_scale_prob
         self.expert_dropout = expert_dropout
+        self.ffn_dim_scale=ffn_dim_scale
 
     @property
     def max_position_embeddings(self):

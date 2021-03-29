@@ -231,66 +231,20 @@ class MLP(nn.Module):
         return self.dropout(h2)
 
 
-class MoE(nn.Module):
-    def __init__(self, n_state, n_expert, config):
-        super().__init__()
-        self.n_state = n_state
-        self.n_expert = n_expert
-        self.dropout = nn.Dropout(config.resid_pdrop)
-        nx = config.n_embd
-        self.router = Conv1D(n_expert, nx)
-        self.act = ACT2FN[config.activation_function]
-        h_state = 4 * n_state
-        self.weight1 = nn.Parameter(torch.zeros(n_expert, n_state, h_state))
-        self.bias1 = nn.Parameter(torch.zeros(n_expert, h_state))
-
-        self.weight2 = nn.Parameter(torch.zeros(n_expert, h_state, n_state))
-        self.bias2 = nn.Parameter(torch.zeros(n_expert, n_state))
-
-        self.capacity_factor = config.capacity_factor
-
-    def forward(self, x):
-        route_prob: torch.Tensor = self.router(x).softmax(-1)
-        route_prob_sum = route_prob.view([-1, self.n_expert]).sum(0)
-        experts_id: torch.Tensor = route_prob.argmax(-1)
-        # unique experts , counts should be reached to specific experts.
-        reached_experts, incomplete_counts = experts_id.unique(return_counts=True)
-        expert_counts: torch.Tensor = reached_experts.new_zeros(self.n_expert)
-        # for re, ic in zip(reached_experts, incomplete_counts):
-        #     expert_counts[re] += ic
-
-        # reranked expert counts
-        expert_counts[reached_experts] += incomplete_counts
-        num_tokens = np.prod(x.shape[:-1])
-        capacity = round(self.capacity_factor / self.n_expert * num_tokens)
-        drop_ratio = capacity / expert_counts.type_as(route_prob)
-        drop_ratio = drop_ratio[experts_id]
-        mask = torch.rand(*experts_id.shape, device=route_prob.device) < drop_ratio
-
-        dropped = torch.relu(expert_counts - capacity)
-
-        x = torch.einsum('...d,...dh->...h', x, self.weight1[experts_id]) + self.bias1[experts_id]
-        x = self.act(x)
-        x = torch.einsum('...d,...dh->...h', x, self.weight2[experts_id]) + self.bias2[experts_id]
-        x = x * mask.unsqueeze(-1)
-        x = self.act(x)
-        x = self.dropout(x)
-        # print(f'expert_counts {expert_counts.shape} route_prob_sum {route_prob_sum.shape} dropped {dropped.shape}')
-        return x, expert_counts, route_prob_sum, dropped
-
 
 class SwitchFeedForward(nn.Module):
     """
     ## Routing among multiple FFNs
     """
 
-    def __init__(self, *,
+    def __init__(self, activation_function: str,
                  capacity_factor: float,
                  drop_tokens: bool,
                  is_scale_prob: bool,
                  n_experts: int,
-                 expert: MLP,
+                 # expert: MLP,
                  d_model: int,
+                 ffn_dim_scale: int,
                  expert_dropout: float, ):
         """
         * `capacity_factor` is the capacity of each expert as a factor relative to ideally balanced load
@@ -310,13 +264,13 @@ class SwitchFeedForward(nn.Module):
         self.drop_tokens = drop_tokens
         self.expert_dropout = expert_dropout
         # make copies of the FFNs
-        self.experts = clone_module_list(expert, n_experts)
+        # self.experts = clone_module_list(expert, n_experts)
         # Routing layer and softmax
         self.switch = nn.Linear(d_model, n_experts)
         self.softmax = nn.Softmax(dim=-1)
         self.dropout = nn.Dropout(expert_dropout)
-        self.act = ACT2FN['gelu_new']
-        h_state = 4 * d_model
+        self.act = ACT2FN[activation_function]
+        h_state = ffn_dim_scale * d_model
         self.weight1 = nn.Parameter(torch.zeros(n_experts, d_model, h_state))
         self.bias1 = nn.Parameter(torch.zeros(n_experts, 1, h_state))
 
@@ -427,17 +381,15 @@ class Block(nn.Module):
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        # if config.use_switch:
-        #     self.feature_mapping = MoE(nx, config.n_experts, config)
-        # else:
         self.feature_mapping = SwitchFeedForward(
             capacity_factor=config.capacity_factor,
             drop_tokens=True,
             is_scale_prob=config.is_scale_prob,
             n_experts=config.n_experts,
-            expert=MLP(4 * nx, config),
             d_model=nx,
-            expert_dropout=config.expert_dropout
+            expert_dropout=config.expert_dropout,
+            activation_function=config.activation_function,
+            ffn_dim_scale=config.ffn_dim_scale
         )
 
     def forward(
