@@ -231,7 +231,6 @@ class MLP(nn.Module):
         return self.dropout(h2)
 
 
-
 class SwitchFeedForward(nn.Module):
     """
     ## Routing among multiple FFNs
@@ -276,6 +275,7 @@ class SwitchFeedForward(nn.Module):
 
         self.weight2 = nn.Parameter(torch.zeros(n_experts, h_state, d_model))
         self.bias2 = nn.Parameter(torch.zeros(n_experts, 1, d_model))
+        self.epsilon = 0.1
 
     def forward(self, x: torch.Tensor):
         """
@@ -291,12 +291,15 @@ class SwitchFeedForward(nn.Module):
         # $$p_i(x) = \frac{e^{h(x)_i}}{\sum^N_j e^{h(x)_j}}$$
         # where $N$ is the number of experts `n_experts` and
         # $h(\cdot)$ is the linear transformation of token embeddings.
-        route_prob = self.softmax(self.switch(x))
+        logits = self.switch(x)
 
+        if self.training:
+            logits += torch.rand_like(logits) * self.epsilon
+
+        route_prob = self.softmax(logits)
         # Get the maximum routing probabilities and the routes.
         # We route to the expert with highest probability
         route_prob_max, routes = torch.max(route_prob, dim=-1)
-
         # Scale the inputs to the experts by the routing probabilities
         if self.is_scale_prob:
             factor = route_prob_max
