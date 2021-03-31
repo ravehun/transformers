@@ -125,7 +125,7 @@ class GPT2SwitchConfig(PretrainedConfig):
             embd_pdrop=0.1,
             attn_pdrop=0.1,
             layer_norm_epsilon=1e-5,
-            initializer_range=0.02,
+            initializer_range=1,
             summary_type="cls_index",
             summary_use_proj=True,
             summary_activation=None,

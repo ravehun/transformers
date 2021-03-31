@@ -435,15 +435,15 @@ class GPT2SwitchPreTrainedModel(PreTrainedModel):
         if isinstance(module, (nn.Embedding, Conv1D)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
-            module.weight.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight.shape[1]))
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range / math.sqrt(0.5 * module.weight.shape[1]))
             if isinstance(module, (nn.Linear, Conv1D)) and module.bias is not None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
         elif isinstance(module, SwitchFeedForward):
-            module.weight1.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight1.shape[1]))
-            module.weight2.data.normal_(mean=0.0, std=1 / math.sqrt(0.5 * module.weight2.shape[1]))
+            module.weight1.data.normal_(mean=0.0, std=self.config.initializer_range / math.sqrt(0.5 * module.weight1.shape[1]))
+            module.weight2.data.normal_(mean=0.0, std=self.config.initializer_range / math.sqrt(0.5 * module.weight2.shape[1]))
             module.bias1.data.zero_()
             module.bias2.data.zero_()
 
