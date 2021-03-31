@@ -293,6 +293,7 @@ class SwitchFeedForward(nn.Module):
         # $h(\cdot)$ is the linear transformation of token embeddings.
         logits = self.switch(x)
 
+        logits = logits.type(torch.float32)
         if self.training:
             logits += torch.rand_like(logits) * self.epsilon
 
@@ -343,7 +344,7 @@ class SwitchFeedForward(nn.Module):
 
                 # Keep only the tokens upto the capacity of the expert
                 actual_indexes[i, :indexes_list[i].shape[0]] = indexes_list[i][:capacity]
-
+        ex = ex.type_as(self.weight1)
         x = torch.einsum('ecd,edh->ech', ex[actual_indexes, :], self.weight1) + self.bias1
         x = self.act(x)
         x = torch.einsum('ecd,edh->ech', x, self.weight2) + self.bias2
